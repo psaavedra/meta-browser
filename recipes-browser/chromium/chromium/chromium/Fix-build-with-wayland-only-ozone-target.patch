@@ -1,0 +1,25 @@
+From a7782c3a9533118df668f271fdc7ca7222aa6908 Mon Sep 17 00:00:00 2001
+From: Carlos Alberto Lopez Perez <clopez@igalia.com>
+Date: Tue, 29 Nov 2016 00:00:50 +0100
+Subject: [PATCH] Fix build with wayland-only ozone target
+
+---
+ chrome/browser/ui/views/frame/browser_frame.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/chrome/browser/ui/views/frame/browser_frame.cc b/chrome/browser/ui/views/frame/browser_frame.cc
+index 1772495..a5f136a 100644
+--- a/chrome/browser/ui/views/frame/browser_frame.cc
++++ b/chrome/browser/ui/views/frame/browser_frame.cc
+@@ -41,7 +41,7 @@
+ #include "chrome/browser/ui/views/frame/browser_command_handler_linux.h"
+ #endif
+ 
+-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
++#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_X11)
+ #include "ui/views/widget/desktop_aura/x11_desktop_handler.h"
+ #endif
+ 
+-- 
+2.1.4
+

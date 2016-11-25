@@ -6,6 +6,7 @@ COMPATIBLE_MACHINE_x86 = "(.*)"
 COMPATIBLE_MACHINE_x86-64 = "(.*)"
 COMPATIBLE_MACHINE_armv6 = "(.*)"
 COMPATIBLE_MACHINE_armv7a = "(.*)"
+COMPATIBLE_MACHINE_aarch64 = "(.*)"
 
 # The build type defaults to Release. If you want a Debug build, you can set
 # the variable CHROMIUM_BUILD_TYPE to "Debug" in your conf/local.conf file.
@@ -45,6 +46,9 @@ do_install() {
 	fi
 	if [ -f "${B}/out/${CHROMIUM_BUILD_TYPE}/chrome" ]; then
 		install -Dm 0755 ${B}/out/${CHROMIUM_BUILD_TYPE}/chrome ${D}${bindir}/${BPN}/chrome
+	fi
+	if [ -f "${B}/out/${CHROMIUM_BUILD_TYPE}/content_shell" ]; then
+		install -Dm 4755 ${B}/out/${CHROMIUM_BUILD_TYPE}/content_shell ${D}${bindir}/${BPN}/content_shell
 	fi
 	if [ -f "${B}/out/${CHROMIUM_BUILD_TYPE}/icudtl.dat" ]; then
 		install -Dm 0644 ${B}/out/${CHROMIUM_BUILD_TYPE}/icudtl.dat ${D}${bindir}/${BPN}/icudtl.dat
