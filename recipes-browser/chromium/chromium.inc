@@ -84,6 +84,11 @@ do_install() {
 			install -Dm 0644 "${B}/out/${CHROMIUM_BUILD_TYPE}/${f}" "${D}${bindir}/${BPN}/${f}"
 	done
 
+	# Chromium service manifests (for Mojo IPC).
+	for f in $(cd ${B}/out/${CHROMIUM_BUILD_TYPE}/ && find . -type f -name \*manifest.json); do
+		install -Dm 0644 "${B}/out/${CHROMIUM_BUILD_TYPE}/${f}" "${D}${bindir}/${BPN}/${f}"
+	done
+
 }
 
 PACKAGES =+ "${PN}-codecs-ffmpeg ${PN}-plugin-pdf"

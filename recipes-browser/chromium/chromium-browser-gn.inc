@@ -123,6 +123,7 @@ EXTRA_OEGN = " \
         use_ozone=true \
         ozone_auto_platforms=false \
         ozone_platform_headless=true \
+        enable_package_mash_services=true \
         ${@bb.utils.contains('PACKAGECONFIG', 'wayland', 'ozone_platform_wayland=true', 'ozone_platform_wayland=false', d)} \
         ${@bb.utils.contains('PACKAGECONFIG', 'x11', 'ozone_platform_x11=true', 'ozone_platform_x11=false', d)} \
         ${@bb.utils.contains('PACKAGECONFIG', 'wayland', 'ozone_platform=\\\"wayland\\\"', bb.utils.contains('PACKAGECONFIG', 'x11', 'ozone_platform=\\\"x11\\\"', 'ozone_platform=\\\"headless\\\"', d), d)} \
@@ -207,7 +208,7 @@ do_configure() {
 
 do_compile() {
         # Build with ninja
-        ninja -v -C ${S}/out/${CHROMIUM_BUILD_TYPE} ${PARALLEL_MAKE} chrome chrome_sandbox \
+        ninja -v -C ${S}/out/${CHROMIUM_BUILD_TYPE} ${PARALLEL_MAKE} chrome chrome_sandbox mash:all \
                 ${@bb.utils.contains('PACKAGECONFIG', 'content-shell', 'content_shell', '', d)}
 }
 
