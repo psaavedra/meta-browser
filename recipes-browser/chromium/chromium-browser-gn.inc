@@ -125,6 +125,7 @@ EXTRA_OEGN = " \
         ozone_platform_headless=true \
         ${@bb.utils.contains('PACKAGECONFIG', 'wayland', 'ozone_platform_wayland=true', 'ozone_platform_wayland=false', d)} \
         ${@bb.utils.contains('PACKAGECONFIG', 'x11', 'ozone_platform_x11=true', 'ozone_platform_x11=false', d)} \
+        ${@bb.utils.contains('PACKAGECONFIG', 'wayland', 'ozone_platform=\\\"wayland\\\"', bb.utils.contains('PACKAGECONFIG', 'x11', 'ozone_platform=\\\"x11\\\"', 'ozone_platform=\\\"headless\\\"', d), d)} \
         v8_use_snapshot=false \
         use_kerberos=false \
         use_cups=false \
