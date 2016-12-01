@@ -14,6 +14,8 @@ SRC_URI = "\
         ${@bb.utils.contains('PACKAGECONFIG', 'disable-api-keys-info-bar', 'file://api-keys.patch;patchdir=${WORKDIR}', '', d)} \
         file://google-chrome.desktop \
         file://chromium/Fix-build-with-wayland-only-ozone-target.patch \
+        file://chromium/Bundle-some-ash-resources-into-chrome-for-mash-1-use.patch \
+        file://chromium/Ozone-platform-wayland-Implement-keyboard-handling.patch \
         file://chromium/add_missing_stat_h_include.patch \
         file://0004-Create-empty-i18n_process_css_test.html-file-to-avoi.patch \
         file://0005-Override-root-filesystem-access-restriction.patch \

@@ -1,0 +1,395 @@
+From 2a4e038160385975611b35102604b51f8433b3b6 Mon Sep 17 00:00:00 2001
+From: forney <forney@google.com>
+Date: Fri, 10 Jun 2016 16:10:47 -0400
+Subject: [PATCH] ozone/platform/wayland: Implement keyboard handling
+
+BUG=578890
+---
+ ui/ozone/platform/wayland/BUILD.gn              |  4 ++
+ ui/ozone/platform/wayland/wayland_connection.cc | 31 ++++++++-
+ ui/ozone/platform/wayland/wayland_connection.h  | 10 +++
+ ui/ozone/platform/wayland/wayland_keyboard.cc   | 91 +++++++++++++++++++++++++
+ ui/ozone/platform/wayland/wayland_keyboard.h    | 60 ++++++++++++++++
+ ui/ozone/platform/wayland/wayland_object.cc     | 11 +++
+ ui/ozone/platform/wayland/wayland_object.h      |  7 ++
+ ui/ozone/platform/wayland/wayland_window.cc     |  2 +
+ ui/ozone/platform/wayland/wayland_window.h      |  4 ++
+ 9 files changed, 219 insertions(+), 1 deletion(-)
+ create mode 100644 ui/ozone/platform/wayland/wayland_keyboard.cc
+ create mode 100644 ui/ozone/platform/wayland/wayland_keyboard.h
+
+diff --git a/ui/ozone/platform/wayland/BUILD.gn b/ui/ozone/platform/wayland/BUILD.gn
+index 494ab60..9a976b9 100644
+--- a/ui/ozone/platform/wayland/BUILD.gn
++++ b/ui/ozone/platform/wayland/BUILD.gn
+@@ -20,6 +20,8 @@ source_set("wayland") {
+     "ozone_platform_wayland.h",
+     "wayland_connection.cc",
+     "wayland_connection.h",
++    "wayland_keyboard.cc",
++    "wayland_keyboard.h",
+     "wayland_object.cc",
+     "wayland_object.h",
+     "wayland_output.cc",
+@@ -39,6 +41,8 @@ source_set("wayland") {
+     "//third_party/wayland-protocols:xdg_shell_protocol",
+     "//ui/display",
+     "//ui/events",
++    "//ui/events/ozone:events_ozone_evdev",
++    "//ui/events/ozone:events_ozone_layout",
+     "//ui/events/platform",
+     "//ui/gfx",
+     "//ui/gfx/geometry",
+diff --git a/ui/ozone/platform/wayland/wayland_connection.cc b/ui/ozone/platform/wayland/wayland_connection.cc
+index 520b21f..eac4c76 100644
+--- a/ui/ozone/platform/wayland/wayland_connection.cc
++++ b/ui/ozone/platform/wayland/wayland_connection.cc
+@@ -12,9 +12,16 @@
+ #include "base/message_loop/message_loop.h"
+ #include "base/strings/string_util.h"
+ #include "base/threading/thread_task_runner_handle.h"
++#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+ #include "ui/ozone/platform/wayland/wayland_object.h"
+ #include "ui/ozone/platform/wayland/wayland_window.h"
+ 
++#if defined(USE_XKBCOMMON)
++#include "ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.h"
++#else
++#include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
++#endif
++
+ static_assert(XDG_SHELL_VERSION_CURRENT == 5, "Unsupported xdg-shell version");
+ 
+ namespace ui {
+@@ -25,7 +32,15 @@ const uint32_t kMaxShmVersion = 1;
+ const uint32_t kMaxXdgShellVersion = 1;
+ }  // namespace
+ 
+-WaylandConnection::WaylandConnection() {}
++WaylandConnection::WaylandConnection() {
++#if defined(USE_XKBCOMMON)
++  KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
++      base::MakeUnique<XkbKeyboardLayoutEngine>(codes_));
++#else
++  KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
++      base::MakeUnique<StubKeyboardLayoutEngine>());
++#endif
++}
+ 
+ WaylandConnection::~WaylandConnection() {}
+ 
+@@ -227,6 +242,20 @@ void WaylandConnection::Capabilities(void* data,
+   } else if (connection->pointer_) {
+     connection->pointer_.reset();
+   }
++  if (capabilities & WL_SEAT_CAPABILITY_KEYBOARD) {
++    if (!connection->keyboard_) {
++      wl_keyboard* keyboard = wl_seat_get_keyboard(connection->seat_.get());
++      if (!keyboard) {
++        LOG(ERROR) << "Failed to get wl_keyboard from seat";
++        return;
++      }
++      connection->keyboard_ = base::MakeUnique<WaylandKeyboard>(
++          keyboard, base::Bind(&WaylandConnection::DispatchUiEvent,
++                               base::Unretained(connection)));
++    }
++  } else if (connection->keyboard_) {
++    connection->keyboard_.reset();
++  }
+   connection->ScheduleFlush();
+ }
+ 
+diff --git a/ui/ozone/platform/wayland/wayland_connection.h b/ui/ozone/platform/wayland/wayland_connection.h
+index 8f837b5..6b6fb84 100644
+--- a/ui/ozone/platform/wayland/wayland_connection.h
++++ b/ui/ozone/platform/wayland/wayland_connection.h
+@@ -10,10 +10,15 @@
+ #include "base/message_loop/message_pump_libevent.h"
+ #include "ui/events/platform/platform_event_source.h"
+ #include "ui/gfx/native_widget_types.h"
++#include "ui/ozone/platform/wayland/wayland_keyboard.h"
+ #include "ui/ozone/platform/wayland/wayland_object.h"
+ #include "ui/ozone/platform/wayland/wayland_output.h"
+ #include "ui/ozone/platform/wayland/wayland_pointer.h"
+ 
++#if defined(USE_XKBCOMMON)
++#include "ui/events/ozone/layout/xkb/xkb_evdev_codes.h"
++#endif
++
+ namespace ui {
+ 
+ class WaylandWindow;
+@@ -78,6 +83,7 @@ class WaylandConnection : public PlatformEventSource,
+   wl::Object<xdg_shell> shell_;
+ 
+   std::unique_ptr<WaylandPointer> pointer_;
++  std::unique_ptr<WaylandKeyboard> keyboard_;
+ 
+   bool scheduled_flush_ = false;
+   bool watching_ = false;
+@@ -85,6 +91,10 @@ class WaylandConnection : public PlatformEventSource,
+ 
+   std::vector<std::unique_ptr<WaylandOutput>> output_list_;
+ 
++#if defined(USE_XKBCOMMON)
++  XkbEvdevCodes codes_;
++#endif
++
+   DISALLOW_COPY_AND_ASSIGN(WaylandConnection);
+ };
+ 
+diff --git a/ui/ozone/platform/wayland/wayland_keyboard.cc b/ui/ozone/platform/wayland/wayland_keyboard.cc
+new file mode 100644
+index 0000000..cc95381
+--- /dev/null
++++ b/ui/ozone/platform/wayland/wayland_keyboard.cc
+@@ -0,0 +1,91 @@
++// Copyright 2016 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/ozone/platform/wayland/wayland_keyboard.h"
++
++#include <wayland-client.h>
++
++#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
++#include "ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.h"
++#include "ui/ozone/platform/wayland/wayland_window.h"
++
++namespace ui {
++
++WaylandKeyboard::WaylandKeyboard(wl_keyboard* keyboard,
++                                 const EventDispatchCallback& callback)
++    : obj_(keyboard),
++      evdev_(&modifiers_,
++             KeyboardLayoutEngineManager::GetKeyboardLayoutEngine(),
++             callback) {
++  static const wl_keyboard_listener listener = {
++      &WaylandKeyboard::Keymap,    &WaylandKeyboard::Enter,
++      &WaylandKeyboard::Leave,     &WaylandKeyboard::Key,
++      &WaylandKeyboard::Modifiers, &WaylandKeyboard::RepeatInfo,
++  };
++
++  wl_keyboard_add_listener(obj_.get(), &listener, this);
++  evdev_.SetAutoRepeatEnabled(true);
++}
++
++WaylandKeyboard::~WaylandKeyboard() {}
++
++void WaylandKeyboard::Keymap(void* data,
++                             wl_keyboard* obj,
++                             uint32_t format,
++                             int32_t fd,
++                             uint32_t size) {
++  // TODO(forney): Implement proper keymap handling.
++  NOTIMPLEMENTED();
++}
++
++void WaylandKeyboard::Enter(void* data,
++                            wl_keyboard* obj,
++                            uint32_t serial,
++                            wl_surface* surface,
++                            wl_array* keys) {
++  WaylandWindow::FromSurface(surface)->set_keyboard_focus(true);
++  // TODO(forney): The KeyboardEvdev object should update its state using the
++  // passed key array.
++}
++
++void WaylandKeyboard::Leave(void* data,
++                            wl_keyboard* obj,
++                            uint32_t serial,
++                            wl_surface* surface) {
++  WaylandWindow::FromSurface(surface)->set_keyboard_focus(false);
++}
++
++void WaylandKeyboard::Key(void* data,
++                          wl_keyboard* obj,
++                          uint32_t serial,
++                          uint32_t time,
++                          uint32_t key,
++                          uint32_t state) {
++  WaylandKeyboard* keyboard = static_cast<WaylandKeyboard*>(data);
++  keyboard->evdev_.OnKeyChange(key, state == WL_KEYBOARD_KEY_STATE_PRESSED,
++                               false, base::TimeTicks() + base::TimeDelta::FromMilliseconds(time),
++                               keyboard->obj_.id());
++}
++
++void WaylandKeyboard::Modifiers(void* data,
++                                wl_keyboard* obj,
++                                uint32_t serial,
++                                uint32_t mods_depressed,
++                                uint32_t mods_latched,
++                                uint32_t mods_locked,
++                                uint32_t group) {
++  // TODO(forney): Implement proper modifier handling.
++  NOTIMPLEMENTED();
++}
++
++void WaylandKeyboard::RepeatInfo(void* data,
++                                 wl_keyboard* obj,
++                                 int32_t rate,
++                                 int32_t delay) {
++  WaylandKeyboard* keyboard = static_cast<WaylandKeyboard*>(data);
++  keyboard->evdev_.SetAutoRepeatRate(base::TimeDelta::FromMilliseconds(delay),
++                                     base::TimeDelta::FromSeconds(1) / rate);
++}
++
++}  // namespace ui
+diff --git a/ui/ozone/platform/wayland/wayland_keyboard.h b/ui/ozone/platform/wayland/wayland_keyboard.h
+new file mode 100644
+index 0000000..3a94769
+--- /dev/null
++++ b/ui/ozone/platform/wayland/wayland_keyboard.h
+@@ -0,0 +1,60 @@
++// Copyright 2016 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_OZONE_PLATFORM_WAYLAND_WAYLAND_KEYBOARD_H_
++#define UI_OZONE_PLATFORM_WAYLAND_WAYLAND_KEYBOARD_H_
++
++#include "ui/events/ozone/evdev/event_modifiers_evdev.h"
++#include "ui/events/ozone/evdev/keyboard_evdev.h"
++#include "ui/ozone/platform/wayland/wayland_object.h"
++
++namespace ui {
++
++class WaylandKeyboard {
++ public:
++  WaylandKeyboard(wl_keyboard* keyboard, const EventDispatchCallback& callback);
++  virtual ~WaylandKeyboard();
++
++ private:
++  // wl_keyboard_listener
++  static void Keymap(void* data,
++                     wl_keyboard* obj,
++                     uint32_t format,
++                     int32_t fd,
++                     uint32_t size);
++  static void Enter(void* data,
++                    wl_keyboard* obj,
++                    uint32_t serial,
++                    wl_surface* surface,
++                    wl_array* keys);
++  static void Leave(void* data,
++                    wl_keyboard* obj,
++                    uint32_t serial,
++                    wl_surface* surface);
++  static void Key(void* data,
++                  wl_keyboard* obj,
++                  uint32_t serial,
++                  uint32_t time,
++                  uint32_t key,
++                  uint32_t state);
++  static void Modifiers(void* data,
++                        wl_keyboard* obj,
++                        uint32_t serial,
++                        uint32_t mods_depressed,
++                        uint32_t mods_latched,
++                        uint32_t mods_locked,
++                        uint32_t group);
++  static void RepeatInfo(void* data,
++                         wl_keyboard* obj,
++                         int32_t rate,
++                         int32_t delay);
++
++  wl::Object<wl_keyboard> obj_;
++  EventModifiersEvdev modifiers_;
++  KeyboardEvdev evdev_;
++};
++
++}  // namespace ui
++
++#endif  // UI_OZONE_PLATFORM_WAYLAND_WAYLAND_KEYBOARD_H_
+diff --git a/ui/ozone/platform/wayland/wayland_object.cc b/ui/ozone/platform/wayland/wayland_object.cc
+index 378bf4e..9bc0ae2 100644
+--- a/ui/ozone/platform/wayland/wayland_object.cc
++++ b/ui/ozone/platform/wayland/wayland_object.cc
+@@ -10,6 +10,13 @@
+ namespace wl {
+ namespace {
+ 
++void delete_keyboard(wl_keyboard* keyboard) {
++  if (wl_keyboard_get_version(keyboard) >= WL_KEYBOARD_RELEASE_SINCE_VERSION)
++    wl_keyboard_release(keyboard);
++  else
++    wl_keyboard_destroy(keyboard);
++}
++
+ void delete_pointer(wl_pointer* pointer) {
+   if (wl_pointer_get_version(pointer) >= WL_POINTER_RELEASE_SINCE_VERSION)
+     wl_pointer_release(pointer);
+@@ -37,6 +44,10 @@ void (*ObjectTraits<wl_compositor>::deleter)(wl_compositor*) =
+ const wl_interface* ObjectTraits<wl_display>::interface = &wl_display_interface;
+ void (*ObjectTraits<wl_display>::deleter)(wl_display*) = &wl_display_disconnect;
+ 
++const wl_interface* ObjectTraits<wl_keyboard>::interface =
++    &wl_keyboard_interface;
++void (*ObjectTraits<wl_keyboard>::deleter)(wl_keyboard*) = &delete_keyboard;
++
+ const wl_interface* ObjectTraits<wl_output>::interface = &wl_output_interface;
+ void (*ObjectTraits<wl_output>::deleter)(wl_output*) = &wl_output_destroy;
+ 
+diff --git a/ui/ozone/platform/wayland/wayland_object.h b/ui/ozone/platform/wayland/wayland_object.h
+index 8caac24..d1742d2 100644
+--- a/ui/ozone/platform/wayland/wayland_object.h
++++ b/ui/ozone/platform/wayland/wayland_object.h
+@@ -11,6 +11,7 @@
+ 
+ struct wl_buffer;
+ struct wl_compositor;
++struct wl_keyboard;
+ struct wl_output;
+ struct wl_pointer;
+ struct wl_registry;
+@@ -45,6 +46,12 @@ struct ObjectTraits<wl_display> {
+ };
+ 
+ template <>
++struct ObjectTraits<wl_keyboard> {
++  static const wl_interface* interface;
++  static void (*deleter)(wl_keyboard*);
++};
++
++template <>
+ struct ObjectTraits<wl_output> {
+   static const wl_interface* interface;
+   static void (*deleter)(wl_output*);
+diff --git a/ui/ozone/platform/wayland/wayland_window.cc b/ui/ozone/platform/wayland/wayland_window.cc
+index 7dd2a3d4..3711dbd 100644
+--- a/ui/ozone/platform/wayland/wayland_window.cc
++++ b/ui/ozone/platform/wayland/wayland_window.cc
+@@ -149,6 +149,8 @@ bool WaylandWindow::CanDispatchEvent(const PlatformEvent& native_event) {
+   Event* event = static_cast<Event*>(native_event);
+   if (event->IsMouseEvent())
+     return has_pointer_focus_;
++  if (event->IsKeyEvent())
++    return has_keyboard_focus_;
+   return false;
+ }
+ 
+diff --git a/ui/ozone/platform/wayland/wayland_window.h b/ui/ozone/platform/wayland/wayland_window.h
+index 23e01ec..fa004a0 100644
+--- a/ui/ozone/platform/wayland/wayland_window.h
++++ b/ui/ozone/platform/wayland/wayland_window.h
+@@ -36,6 +36,9 @@ class WaylandWindow : public PlatformWindow, public PlatformEventDispatcher {
+   // Set whether this window has pointer focus and should dispatch mouse events.
+   void set_pointer_focus(bool focus) { has_pointer_focus_ = focus; }
+ 
++  // Set whether this window has keyboard focus and should dispatch key events.
++  void set_keyboard_focus(bool focus) { has_keyboard_focus_ = focus; }
++
+   // PlatformWindow
+   void Show() override;
+   void Hide() override;
+@@ -78,6 +81,7 @@ class WaylandWindow : public PlatformWindow, public PlatformEventDispatcher {
+   gfx::Rect pending_bounds_;
+   uint32_t pending_configure_serial_;
+   bool has_pointer_focus_ = false;
++  bool has_keyboard_focus_ = false;
+ 
+   DISALLOW_COPY_AND_ASSIGN(WaylandWindow);
+ };
+-- 
+2.7.4
+

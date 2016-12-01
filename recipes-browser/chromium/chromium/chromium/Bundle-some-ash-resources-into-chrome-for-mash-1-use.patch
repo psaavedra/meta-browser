@@ -1,0 +1,74 @@
+From d243ca9b108beebd4a92b0bf5cd4e83f56b73d14 Mon Sep 17 00:00:00 2001
+From: Antonio Gomes <tonikitoo@igalia.com>
+Date: Wed, 16 Nov 2016 01:17:54 -0400
+Subject: [PATCH] Bundle some ash resources into chrome for mash=1 use_ash=0
+
+Today it is possible to build the 'chrome' target with
+mash enabled on both ChromeOS and Linux desktop builds,
+by setting 'enable_package_mash_services=true' in the GN arguments.
+
+In case of ChromeOS builds, 'use_ash' is enabled by default,
+and the ash resources (localized strings, icons, etc), are
+bundled into the 'chrome' executable just normally.
+
+In case of non-chromeos mash builds though, although 'use_ash'
+is false by default, some code in //src/ash/ is still used because
+//chrome/app/mash does depend on ash.
+
+This CL temporarily allows some ash_resources to be bundled into 'chrome',
+when 'enable_package_mash_services' is true.
+
+In practice, without the ash_resources bundled into chrome, chrome
+launches like https://goo.gl/9mbQA5 (see the missing resources).
+On the other hand, with the ash_resource bundled, chrome launches like
+https://goo.gl/0R9Sl3 .
+
+BUG=
+---
+ chrome/chrome_paks.gni           | 5 ++++-
+ chrome/chrome_repack_locales.gni | 6 +++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/chrome/chrome_paks.gni b/chrome/chrome_paks.gni
+index c3ac484..efd841d 100644
+--- a/chrome/chrome_paks.gni
++++ b/chrome/chrome_paks.gni
+@@ -52,7 +52,10 @@ template("chrome_repack_percent") {
+       deps += invoker.deps
+     }
+ 
+-    if (use_ash) {
++    # Chrome --mash in non-chromeos builds need to access some ash resources
++    # in order to avoid some missing icons in Ash's window manager session.
++    # TODO(tonikitoo): Remove this when a chrome/mus is available.
++    if (use_ash || enable_package_mash_services) {
+       sources +=
+           [ "$root_gen_dir/ash/resources/ash_resources_${percent}_percent.pak" ]
+       deps += [ "//ash/resources" ]
+diff --git a/chrome/chrome_repack_locales.gni b/chrome/chrome_repack_locales.gni
+index d5bd6f9..a68ac33 100644
+--- a/chrome/chrome_repack_locales.gni
++++ b/chrome/chrome_repack_locales.gni
+@@ -6,6 +6,7 @@ import("//build/config/chrome_build.gni")
+ import("//build/config/features.gni")
+ import("//build/config/ui.gni")
+ import("//extensions/features/features.gni")
++import("//chrome/common/features.gni")
+ import("//tools/grit/repack.gni")
+ 
+ # Wraps repack_locales(), setting the source_patterns and deps required for
+@@ -41,7 +42,10 @@ template("chrome_repack_locales") {
+       deps += invoker.deps
+     }
+ 
+-    if (use_ash) {
++    # Chrome --mash in non-chromeos builds need to access some ash resources
++    # in order to avoid some missing localized strings in Ash's window manager session.
++    # TODO(tonikitoo): Remove this when a chrome/mus is available.
++    if (use_ash || enable_package_mash_services) {
+       source_patterns += [ "${root_gen_dir}/ash/common/strings/ash_strings_" ]
+       deps += [ "//ash/common/strings" ]
+     }
+-- 
+2.7.4
+
