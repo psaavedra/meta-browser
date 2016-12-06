@@ -208,7 +208,7 @@ do_configure() {
 
 do_compile() {
         # Build with ninja
-        ninja -v -C ${S}/out/${CHROMIUM_BUILD_TYPE} ${PARALLEL_MAKE} chrome chrome_sandbox mash:all \
+        ninja -v -C ${S}/out/${CHROMIUM_BUILD_TYPE} ${PARALLEL_MAKE} chrome chrome_sandbox mash:all blink_tests \
                 ${@bb.utils.contains('PACKAGECONFIG', 'content-shell', 'content_shell', '', d)}
 }
 

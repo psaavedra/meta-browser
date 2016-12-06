@@ -17,6 +17,10 @@ SRC_URI = "\
         file://chromium/Bundle-some-ash-resources-into-chrome-for-mash-1-use.patch \
         file://chromium/Ozone-platform-wayland-Implement-keyboard-handling.patch \
         file://chromium/add_missing_stat_h_include.patch \
+        file://chromium_sw_rendering/Make-DesktopFactoryOzone-instances-to-respect-ozone-.patch \
+        file://chromium_sw_rendering/Port-minimal-files-from-Ozone-Wayland-needed-for-des.patch \
+        file://chromium_sw_rendering/Port-files-changed-in-Ozone-Wayland-in-order-to-buil.patch \
+        file://chromium_sw_rendering/Temporary-Force-run-on-Chrome-OS.patch \
         file://0004-Create-empty-i18n_process_css_test.html-file-to-avoi.patch \
         file://0005-Override-root-filesystem-access-restriction.patch \
         ${@bb.utils.contains('PACKAGECONFIG', 'ignore-lost-context', 'file://0001-Remove-accelerated-Canvas-support-from-blacklist.patch', '', d)} \
