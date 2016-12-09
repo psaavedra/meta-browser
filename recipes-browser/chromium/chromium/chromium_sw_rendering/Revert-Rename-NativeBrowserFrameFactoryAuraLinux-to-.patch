@@ -1,0 +1,326 @@
+From 32b4796057f26efc59e923700ad8c272964f7c92 Mon Sep 17 00:00:00 2001
+From: Antonio Gomes <tonikitoo@igalia.com>
+Date: Thu, 8 Dec 2016 22:27:06 -0400
+Subject: [PATCH] Revert "Rename NativeBrowserFrameFactoryAuraLinux to
+ NativeBrowserFrameFactoryAuraX11"
+
+This reverts commit 4a21f91e46780251bd593d34a105bbedb18686a6.
+---
+ chrome/browser/ui/BUILD.gn                         |  6 +-
+ .../views/frame/desktop_browser_frame_auralinux.cc | 66 ++++++++++++++++++++++
+ .../views/frame/desktop_browser_frame_auralinux.h  | 35 ++++++++++++
+ .../views/frame/desktop_browser_frame_aurax11.cc   | 66 ----------------------
+ .../ui/views/frame/desktop_browser_frame_aurax11.h | 35 ------------
+ .../native_browser_frame_factory_auralinux.cc      | 17 ++++++
+ .../frame/native_browser_frame_factory_aurax11.cc  | 17 ------
+ 7 files changed, 121 insertions(+), 121 deletions(-)
+ create mode 100644 chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.cc
+ create mode 100644 chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.h
+ delete mode 100644 chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.cc
+ delete mode 100644 chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.h
+ create mode 100644 chrome/browser/ui/views/frame/native_browser_frame_factory_auralinux.cc
+ delete mode 100644 chrome/browser/ui/views/frame/native_browser_frame_factory_aurax11.cc
+
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index ec5ffca..f3c2c69 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -3048,6 +3048,8 @@ split_static_library("ui") {
+       "views/first_run_dialog.cc",
+       "views/first_run_dialog.h",
+       "views/frame/browser_desktop_window_tree_host.h",
++      "views/frame/desktop_browser_frame_auralinux.cc",
++      "views/frame/desktop_browser_frame_auralinux.h",
+       "views/status_icons/status_icon_linux_wrapper.cc",
+       "views/status_icons/status_icon_linux_wrapper.h",
+       "webui/help/version_updater_basic.cc",
+@@ -3062,13 +3064,11 @@ split_static_library("ui") {
+       sources += [
+         "views/frame/browser_desktop_window_tree_host_x11.cc",
+         "views/frame/browser_desktop_window_tree_host_x11.h",
+-        "views/frame/desktop_browser_frame_aurax11.cc",
+-        "views/frame/desktop_browser_frame_aurax11.h",
+         "views/frame/global_menu_bar_registrar_x11.cc",
+         "views/frame/global_menu_bar_registrar_x11.h",
+         "views/frame/global_menu_bar_x11.cc",
+         "views/frame/global_menu_bar_x11.h",
+-        "views/frame/native_browser_frame_factory_aurax11.cc",
++        "views/frame/native_browser_frame_factory_auralinux.cc",
+         "views/javascript_app_modal_dialog_views_x11.cc",
+         "views/javascript_app_modal_dialog_views_x11.h",
+       ]
+diff --git a/chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.cc b/chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.cc
+new file mode 100644
+index 0000000..1b180fa
+--- /dev/null
++++ b/chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.cc
+@@ -0,0 +1,66 @@
++// Copyright 2015 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.h"
++
++#include "base/command_line.h"
++#include "chrome/browser/shell_integration_linux.h"
++#include "chrome/browser/ui/views/frame/browser_frame.h"
++#include "chrome/browser/ui/views/frame/browser_view.h"
++#include "chrome/common/chrome_switches.h"
++#include "chrome/common/pref_names.h"
++#include "ui/views/widget/widget.h"
++
++DesktopBrowserFrameAuraLinux::DesktopBrowserFrameAuraLinux(
++    BrowserFrame* browser_frame,
++    BrowserView* browser_view)
++    : DesktopBrowserFrameAura(browser_frame, browser_view) {
++  use_custom_frame_pref_.Init(
++      prefs::kUseCustomChromeFrame,
++      browser_view->browser()->profile()->GetPrefs(),
++      base::Bind(&DesktopBrowserFrameAuraLinux::OnUseCustomChromeFrameChanged,
++                 base::Unretained(this)));
++}
++
++DesktopBrowserFrameAuraLinux::~DesktopBrowserFrameAuraLinux() {
++}
++
++views::Widget::InitParams DesktopBrowserFrameAuraLinux::GetWidgetParams() {
++  views::Widget::InitParams params;
++  params.native_widget = this;
++
++  // Set up a custom WM_CLASS for some sorts of window types. This allows
++  // task switchers in X11 environments to distinguish between main browser
++  // windows and e.g app windows.
++  const Browser& browser = *browser_view()->browser();
++  params.wm_class_name =
++      browser.is_app() && !browser.is_devtools()
++          ? web_app::GetWMClassFromAppName(browser.app_name())
++          // This window is a hosted app or v1 packaged app.
++          // NOTE: v2 packaged app windows are created by
++          // ChromeNativeAppWindowViews.
++          : shell_integration_linux::GetProgramClassName();
++  params.wm_class_class = shell_integration_linux::GetProgramClassClass();
++  const char kX11WindowRoleBrowser[] = "browser";
++  const char kX11WindowRolePopup[] = "pop-up";
++  params.wm_role_name = browser_view()->browser()->is_type_tabbed()
++                            ? std::string(kX11WindowRoleBrowser)
++                            : std::string(kX11WindowRolePopup);
++  params.remove_standard_frame = UseCustomFrame();
++
++  return params;
++}
++
++bool DesktopBrowserFrameAuraLinux::UseCustomFrame() const {
++  return use_custom_frame_pref_.GetValue() &&
++      browser_view()->IsBrowserTypeNormal();
++}
++
++void DesktopBrowserFrameAuraLinux::OnUseCustomChromeFrameChanged() {
++  // Tell the window manager to add or remove system borders.
++  browser_frame()->set_frame_type(
++      UseCustomFrame() ? views::Widget::FRAME_TYPE_FORCE_CUSTOM
++                       : views::Widget::FRAME_TYPE_FORCE_NATIVE);
++  browser_frame()->FrameTypeChanged();
++}
+diff --git a/chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.h b/chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.h
+new file mode 100644
+index 0000000..87f231b
+--- /dev/null
++++ b/chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.h
+@@ -0,0 +1,35 @@
++// Copyright 2015 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_FRAME_DESKTOP_BROWSER_FRAME_AURALINUX_H_
++#define CHROME_BROWSER_UI_VIEWS_FRAME_DESKTOP_BROWSER_FRAME_AURALINUX_H_
++
++#include "base/macros.h"
++#include "chrome/browser/ui/views/frame/desktop_browser_frame_aura.h"
++#include "components/prefs/pref_member.h"
++
++// Provides the window frame for the Chrome browser window on Desktop Linux.
++class DesktopBrowserFrameAuraLinux : public DesktopBrowserFrameAura {
++ public:
++  DesktopBrowserFrameAuraLinux(BrowserFrame* browser_frame,
++                               BrowserView* browser_view);
++
++ protected:
++  ~DesktopBrowserFrameAuraLinux() override;
++
++  // Overridden from NativeBrowserFrame:
++  views::Widget::InitParams GetWidgetParams() override;
++  bool UseCustomFrame() const override;
++
++ private:
++  // Called when the preference changes.
++  void OnUseCustomChromeFrameChanged();
++
++  // Whether the custom Chrome frame preference is set.
++  BooleanPrefMember use_custom_frame_pref_;
++
++  DISALLOW_COPY_AND_ASSIGN(DesktopBrowserFrameAuraLinux);
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_FRAME_DESKTOP_BROWSER_FRAME_AURALINUX_H_
+diff --git a/chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.cc b/chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.cc
+deleted file mode 100644
+index 7123114..0000000
+--- a/chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.cc
++++ /dev/null
+@@ -1,66 +0,0 @@
+-// Copyright 2015 The Chromium Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
+-
+-#include "chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.h"
+-
+-#include "base/command_line.h"
+-#include "chrome/browser/shell_integration_linux.h"
+-#include "chrome/browser/ui/views/frame/browser_frame.h"
+-#include "chrome/browser/ui/views/frame/browser_view.h"
+-#include "chrome/common/chrome_switches.h"
+-#include "chrome/common/pref_names.h"
+-#include "ui/views/widget/widget.h"
+-
+-DesktopBrowserFrameAuraX11::DesktopBrowserFrameAuraX11(
+-    BrowserFrame* browser_frame,
+-    BrowserView* browser_view)
+-    : DesktopBrowserFrameAura(browser_frame, browser_view) {
+-  use_custom_frame_pref_.Init(
+-      prefs::kUseCustomChromeFrame,
+-      browser_view->browser()->profile()->GetPrefs(),
+-      base::Bind(&DesktopBrowserFrameAuraX11::OnUseCustomChromeFrameChanged,
+-                 base::Unretained(this)));
+-}
+-
+-DesktopBrowserFrameAuraX11::~DesktopBrowserFrameAuraX11() {
+-}
+-
+-views::Widget::InitParams DesktopBrowserFrameAuraX11::GetWidgetParams() {
+-  views::Widget::InitParams params;
+-  params.native_widget = this;
+-
+-  // Set up a custom WM_CLASS for some sorts of window types. This allows
+-  // task switchers in X11 environments to distinguish between main browser
+-  // windows and e.g app windows.
+-  const Browser& browser = *browser_view()->browser();
+-  params.wm_class_name =
+-      browser.is_app() && !browser.is_devtools()
+-          ? web_app::GetWMClassFromAppName(browser.app_name())
+-          // This window is a hosted app or v1 packaged app.
+-          // NOTE: v2 packaged app windows are created by
+-          // ChromeNativeAppWindowViews.
+-          : shell_integration_linux::GetProgramClassName();
+-  params.wm_class_class = shell_integration_linux::GetProgramClassClass();
+-  const char kX11WindowRoleBrowser[] = "browser";
+-  const char kX11WindowRolePopup[] = "pop-up";
+-  params.wm_role_name = browser_view()->browser()->is_type_tabbed()
+-                            ? std::string(kX11WindowRoleBrowser)
+-                            : std::string(kX11WindowRolePopup);
+-  params.remove_standard_frame = UseCustomFrame();
+-
+-  return params;
+-}
+-
+-bool DesktopBrowserFrameAuraX11::UseCustomFrame() const {
+-  return use_custom_frame_pref_.GetValue() &&
+-      browser_view()->IsBrowserTypeNormal();
+-}
+-
+-void DesktopBrowserFrameAuraX11::OnUseCustomChromeFrameChanged() {
+-  // Tell the window manager to add or remove system borders.
+-  browser_frame()->set_frame_type(
+-      UseCustomFrame() ? views::Widget::FRAME_TYPE_FORCE_CUSTOM
+-                       : views::Widget::FRAME_TYPE_FORCE_NATIVE);
+-  browser_frame()->FrameTypeChanged();
+-}
+diff --git a/chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.h b/chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.h
+deleted file mode 100644
+index 08e63f5..0000000
+--- a/chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.h
++++ /dev/null
+@@ -1,35 +0,0 @@
+-// Copyright 2015 The Chromium Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
+-
+-#ifndef CHROME_BROWSER_UI_VIEWS_FRAME_DESKTOP_BROWSER_FRAME_AURAX11_H_
+-#define CHROME_BROWSER_UI_VIEWS_FRAME_DESKTOP_BROWSER_FRAME_AURAX11_H_
+-
+-#include "base/macros.h"
+-#include "chrome/browser/ui/views/frame/desktop_browser_frame_aura.h"
+-#include "components/prefs/pref_member.h"
+-
+-// Provides the window frame for the Chrome browser window on Desktop Linux/X11.
+-class DesktopBrowserFrameAuraX11 : public DesktopBrowserFrameAura {
+- public:
+-  DesktopBrowserFrameAuraX11(BrowserFrame* browser_frame,
+-                             BrowserView* browser_view);
+-
+- protected:
+-  ~DesktopBrowserFrameAuraX11() override;
+-
+-  // Overridden from NativeBrowserFrame:
+-  views::Widget::InitParams GetWidgetParams() override;
+-  bool UseCustomFrame() const override;
+-
+- private:
+-  // Called when the preference changes.
+-  void OnUseCustomChromeFrameChanged();
+-
+-  // Whether the custom Chrome frame preference is set.
+-  BooleanPrefMember use_custom_frame_pref_;
+-
+-  DISALLOW_COPY_AND_ASSIGN(DesktopBrowserFrameAuraX11);
+-};
+-
+-#endif  // CHROME_BROWSER_UI_VIEWS_FRAME_DESKTOP_BROWSER_FRAME_AURAX11_H_
+diff --git a/chrome/browser/ui/views/frame/native_browser_frame_factory_auralinux.cc b/chrome/browser/ui/views/frame/native_browser_frame_factory_auralinux.cc
+new file mode 100644
+index 0000000..44dd8b5
+--- /dev/null
++++ b/chrome/browser/ui/views/frame/native_browser_frame_factory_auralinux.cc
+@@ -0,0 +1,17 @@
++// Copyright 2013 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/frame/native_browser_frame_factory.h"
++
++#include "chrome/browser/ui/views/frame/browser_frame_mus.h"
++#include "chrome/browser/ui/views/frame/desktop_browser_frame_auralinux.h"
++#include "services/service_manager/runner/common/client_util.h"
++
++NativeBrowserFrame* NativeBrowserFrameFactory::Create(
++    BrowserFrame* browser_frame,
++    BrowserView* browser_view) {
++  if (service_manager::ServiceManagerIsRemote())
++    return new BrowserFrameMus(browser_frame, browser_view);
++  return new DesktopBrowserFrameAuraLinux(browser_frame, browser_view);
++}
+diff --git a/chrome/browser/ui/views/frame/native_browser_frame_factory_aurax11.cc b/chrome/browser/ui/views/frame/native_browser_frame_factory_aurax11.cc
+deleted file mode 100644
+index a5aa7f5..0000000
+--- a/chrome/browser/ui/views/frame/native_browser_frame_factory_aurax11.cc
++++ /dev/null
+@@ -1,17 +0,0 @@
+-// Copyright 2013 The Chromium Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
+-
+-#include "chrome/browser/ui/views/frame/native_browser_frame_factory.h"
+-
+-#include "chrome/browser/ui/views/frame/browser_frame_mus.h"
+-#include "chrome/browser/ui/views/frame/desktop_browser_frame_aurax11.h"
+-#include "services/service_manager/runner/common/client_util.h"
+-
+-NativeBrowserFrame* NativeBrowserFrameFactory::Create(
+-    BrowserFrame* browser_frame,
+-    BrowserView* browser_view) {
+-  if (service_manager::ServiceManagerIsRemote())
+-    return new BrowserFrameMus(browser_frame, browser_view);
+-  return new DesktopBrowserFrameAuraX11(browser_frame, browser_view);
+-}
+-- 
+2.7.4
+

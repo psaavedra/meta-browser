@@ -21,6 +21,8 @@ SRC_URI = "\
         file://chromium_sw_rendering/Port-minimal-files-from-Ozone-Wayland-needed-for-des.patch \
         file://chromium_sw_rendering/Port-files-changed-in-Ozone-Wayland-in-order-to-buil.patch \
         file://chromium_sw_rendering/Temporary-Force-run-on-Chrome-OS.patch \
+        file://chromium_sw_rendering/Revert-Rename-NativeBrowserFrameFactoryAuraLinux-to-.patch \
+        file://chromium_sw_rendering/Get-chrome-running-with-wayland-sw-and-hw-w-in-proce.patch \
         file://0004-Create-empty-i18n_process_css_test.html-file-to-avoi.patch \
         file://0005-Override-root-filesystem-access-restriction.patch \
         ${@bb.utils.contains('PACKAGECONFIG', 'ignore-lost-context', 'file://0001-Remove-accelerated-Canvas-support-from-blacklist.patch', '', d)} \
