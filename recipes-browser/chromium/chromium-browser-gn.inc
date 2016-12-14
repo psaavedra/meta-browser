@@ -185,7 +185,7 @@ python do_check_gn() {
     import os
     gnpath = d.getVar('CHROMIUM_GN_PATH', False)
     if not gnpath:
-        bb.fatal('Please define on local.conf the path to the prebuilt gn binary (not the depot_tools wrapper) as follows: CHROMIUM_GN_PATH="/full/path/to/gn" ')
+        bb.fatal('Please define in local.conf the path to the prebuilt gn binary (not the depot_tools wrapper) as follows: CHROMIUM_GN_PATH="/full/path/to/gn". You can find the prebuilt gn binary in your chromium workdir or at https://tmp.igalia.com/chromium-tarballs/gn.')
     gnbin = os.path.join(gnpath, 'gn')
     if not os.path.isfile(gnbin):
         bb.fatal('Cant find a gn file at %s' % gnpath)
