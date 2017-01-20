@@ -9,7 +9,7 @@ do_configure_prepend () {
 }
 
 SRC_URI = "\
-        https://tmp.igalia.com/chromium-tarballs/chromium-03e06cc174f.tar.gz \
+        https://tmp.igalia.com/chromium-tarballs/chromium-03e06cc174f.tar.xz \
         file://google-chrome \
         ${@bb.utils.contains('PACKAGECONFIG', 'disable-api-keys-info-bar', 'file://api-keys.patch;patchdir=${WORKDIR}', '', d)} \
         file://google-chrome.desktop \
@@ -32,7 +32,7 @@ S = "${WORKDIR}/src"
 
 
 LIC_FILES_CHKSUM = "file://LICENSE;md5=0fca02217a5d49a14dfe2d11837bb34d"
-SRC_URI[md5sum] = "14a4142bd8791873276e01bdd5390b24"
-SRC_URI[sha256sum] = "a1f10e9e7f675ad05e386919b22999033210254eab0d7bed8ae8e8611b91f95c"
+SRC_URI[md5sum] = "c90eaef7f8207bbf67e049a8565518d0"
+SRC_URI[sha256sum] = "5ec9ee544d5f600253acf0c7681c722234ad11ae8ba98d98c8b6f5c53c88a81c"
 
 INSANE_SKIP_${PN}_arm = "already-stripped"
