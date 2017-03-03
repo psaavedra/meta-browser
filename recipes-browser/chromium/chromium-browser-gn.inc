@@ -119,7 +119,7 @@ EXTRA_OEGN = " \
         linux_use_bundled_binutils=false \
         use_gold=true \
         ${@bb.utils.contains('PACKAGECONFIG', 'component-build', 'is_component_build=true', 'is_component_build=false', d)} \
-        ${@bb.utils.contains('PACKAGECONFIG', 'proprietary-codecs', 'proprietary_codecs=true ffmpeg_branding=Chrome', 'proprietary_codecs=false', d)} \
+        ${@bb.utils.contains('PACKAGECONFIG', 'proprietary-codecs', 'proprietary_codecs=true ffmpeg_branding=\\\"Chrome\\\"', 'proprietary_codecs=false', d)} \
         use_ozone=true \
         ozone_auto_platforms=false \
         ozone_platform_headless=true \
