@@ -111,7 +111,16 @@ CPUTARGET ?= "unknown_cpu_target"
 
 # Fixme: fix build with v8_use_snapshot=true <http://v8project.blogspot.com.es/2015/09/custom-startup-snapshots.html>
 
+CFLAGS = "${TARGET_CFLAGS}"
+CFLAGS := "${@'${CFLAGS}'.replace('-O2', '-Os')}"
+CFLAGS := "${@'${CFLAGS}'.replace('-fpie', '-fPIE')}"
+
+CXXFLAGS = "${TARGET_CXXFLAGS}"
+CXXFLAGS := "${@'${CFLAGS}'.replace('-O2', '-Os')}"
+CXXFLAGS := "${@'${CFLAGS}'.replace('-fPIE', '-fPIE')}"
+
 EXTRA_OEGN = " \
+        gold_path=\"\" \
         enable_nacl=false \
         is_clang=false \
         fatal_linker_warnings=false  \
@@ -142,9 +151,9 @@ EXTRA_OEGN = " \
         cros_target_cc=\"${CC}\" \
         cros_target_cxx=\"${CXX}\" \
         cros_target_ld=\"${CXX}\" \
-        cros_target_extra_cflags=\"${TARGET_CFLAGS}\" \
+        cros_target_extra_cflags=\"${CFLAGS}\" \
         cros_target_extra_ldflags=\"${TARGET_LDFLAGS}\" \
-        cros_target_extra_cxxflags=\"${TARGET_CXXFLAGS}\" \
+        cros_target_extra_cxxflags=\"${CXXFLAGS}\" \
         cros_target_extra_cppflags=\"${TARGET_CPPFLAGS}\" \
         cros_v8_snapshot_ar=\"${BUILD_AR}\" \
         cros_v8_snapshot_cc=\"${BUILD_CPP}\" \
@@ -195,21 +204,14 @@ python do_check_gn() {
 
 addtask check_gn before do_configure
 
-# The bundled libvpx build fails on ARM64
-DEPENDS += " libvpx"
-
 do_configure() {
-        # Unbundle some libs that cause trouble in the build
-        build/linux/unbundle/replace_gn_files.py --system-libraries libvpx
-
         # Run GN
         ${CHROMIUM_GN_PATH}/gn gen out/${CHROMIUM_BUILD_TYPE} --args="${EXTRA_OEGN}"
 }
 
 do_compile() {
         # Build with ninja
-        ninja -v -C ${S}/out/${CHROMIUM_BUILD_TYPE} ${PARALLEL_MAKE} chrome chrome_sandbox mash:all blink_tests \
-                ${@bb.utils.contains('PACKAGECONFIG', 'content-shell', 'content_shell', '', d)}
+        ninja -v -C ${S}/out/${CHROMIUM_BUILD_TYPE} ${PARALLEL_MAKE} chrome chrome_sandbox mash:all
 }
 
 do_install_append() {
