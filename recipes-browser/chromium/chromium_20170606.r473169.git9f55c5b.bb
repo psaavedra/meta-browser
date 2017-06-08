@@ -14,11 +14,11 @@ SRC_URI = "\
         ${@bb.utils.contains('PACKAGECONFIG', 'disable-api-keys-info-bar', 'file://api-keys.patch;patchdir=${WORKDIR}', '', d)} \
         file://google-chrome.desktop \
         file://0004-Create-empty-i18n_process_css_test.html-file-to-avoi.patch \
+        file://chromium-wayland/0001-Fix-wayland-window-show-hide.patch \
         ${@bb.utils.contains('PACKAGECONFIG', 'ignore-lost-context', 'file://0001-Remove-accelerated-Canvas-support-from-blacklist.patch', '', d)} \
 "
 
 S = "${WORKDIR}/src"
-
 
 LIC_FILES_CHKSUM = "file://LICENSE;md5=0fca02217a5d49a14dfe2d11837bb34d"
 SRC_URI[md5sum] = "ae8966cde764bb4cc783286025171931"
