@@ -1,6 +1,7 @@
 include chromium.inc
 
 DESCRIPTION = "Chromium browser"
+DEPENDS += "gn-native"
 
 SRC_URI = "\
         http://gsdview.appspot.com/chromium-browser-official/chromium-${PV}.tar.xz \
@@ -187,26 +188,9 @@ python() {
         d.appendVar('EXTRA_OEGN', ' %s ' % 'is_debug=true')
 }
 
-# Fixme: we should build gn natively instead of doing this.
-# Here is a starting point for this: https://gist.github.com/mohamed/4fa7eb75807463d4dfa3
-
-python do_check_gn() {
-    import os
-    gnpath = d.getVar('CHROMIUM_GN_PATH', False)
-    if not gnpath:
-        bb.fatal('Please define in local.conf the path to the prebuilt gn binary (not the depot_tools wrapper) as follows: CHROMIUM_GN_PATH="/full/path/to/gn". You can find the prebuilt gn binary in your chromium workdir or at https://tmp.igalia.com/chromium-tarballs/gn.')
-    gnbin = os.path.join(gnpath, 'gn')
-    if not os.path.isfile(gnbin):
-        bb.fatal('Cant find a gn file at %s' % gnpath)
-    if not os.access(gnbin, os.X_OK):
-        bb.fatal('gn binary at %s is not executable' % gnpath)
-}
-
-addtask check_gn before do_configure
-
 do_configure() {
         # Run GN
-        ${CHROMIUM_GN_PATH}/gn gen out/${CHROMIUM_BUILD_TYPE} --args="${EXTRA_OEGN}"
+        gn gen out/${CHROMIUM_BUILD_TYPE} --args="${EXTRA_OEGN}"
 }
 
 do_compile() {
