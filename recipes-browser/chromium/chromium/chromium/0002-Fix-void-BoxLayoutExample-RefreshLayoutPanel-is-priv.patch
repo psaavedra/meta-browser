@@ -1,0 +1,49 @@
+From 66d6b922b1e147a4f9a862229146f51c69fe7d54 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Fri, 11 Aug 2017 13:00:48 +0300
+Subject: [PATCH] Fix 'void BoxLayoutExample::RefreshLayoutPanel()' is private
+ within this context
+
+../../ui/views/examples/box_layout_example.cc: In member function 'void views::examples::{anonymous}::ChildPanel::SetSelected(bool)':
+../../ui/views/examples/box_layout_example.cc:167:34: error: 'void views::examples::BoxLayoutExample::RefreshLayoutPanel()' is private within this context
+     example_->RefreshLayoutPanel();
+                                  ^
+In file included from ../../ui/views/examples/box_layout_example.cc:5:0:
+../../ui/views/examples/box_layout_example.h:53:8: note: declared private here
+   void RefreshLayoutPanel();
+        ^~~~~~~~~~~~~~~~~~
+../../ui/views/examples/box_layout_example.cc: In member function 'virtual void views::examples::{anonymous}::ChildPanel::ContentsChanged(views::Textfield*, const string16&)':
+../../ui/views/examples/box_layout_example.cc:190:35: error: 'void views::examples::BoxLayoutExample::UpdateLayoutManager()' is private within this context
+     example_->UpdateLayoutManager();
+                                   ^
+In file included from ../../ui/views/examples/box_layout_example.cc:5:0:
+../../ui/views/examples/box_layout_example.h:60:8: note: declared private here
+   void UpdateLayoutManager();
+        ^~~~~~~~~~~~~~~~~~~
+../../ui/views/examples/box_layout_example.cc:191:32: error: 'void views::examples::BoxLayoutExample::RefreshLayoutPanel()' is private within this context
+   example_->RefreshLayoutPanel();
+                                ^
+In file included from ../../ui/views/examples/box_layout_example.cc:5:0:
+../../ui/views/examples/box_layout_example.h:53:8: note: declared private here
+   void RefreshLayoutPanel();
+        ^~~~~~~~~~~~~~~~~~
+---
+ ui/views/examples/box_layout_example.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ui/views/examples/box_layout_example.h b/ui/views/examples/box_layout_example.h
+index 76950459ecee..d6b0a2cf2b5a 100644
+--- a/ui/views/examples/box_layout_example.h
++++ b/ui/views/examples/box_layout_example.h
+@@ -38,7 +38,7 @@ class VIEWS_EXAMPLES_EXPORT BoxLayoutExample : public ExampleBase,
+   void CreateExampleView(View* container) override;
+ 
+  private:
+-  friend class ChildPanel;
++  friend class views::examples::ChildPanel;
+   // ButtonListener
+   void ButtonPressed(Button* sender, const ui::Event& event) override;
+ 
+-- 
+2.11.0
+

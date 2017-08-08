@@ -113,11 +113,9 @@ CPUTARGET ?= "unknown_cpu_target"
 # Fixme: fix build with v8_use_snapshot=true <http://v8project.blogspot.com.es/2015/09/custom-startup-snapshots.html>
 
 CFLAGS = "${TARGET_CFLAGS}"
-CFLAGS := "${@'${CFLAGS}'.replace('-O2', '-Os')}"
 CFLAGS := "${@'${CFLAGS}'.replace('-fpie', '-fPIE')}"
 
 CXXFLAGS = "${TARGET_CXXFLAGS}"
-CXXFLAGS := "${@'${CFLAGS}'.replace('-O2', '-Os')}"
 CXXFLAGS := "${@'${CFLAGS}'.replace('-fPIE', '-fPIE')}"
 
 EXTRA_OEGN = " \
@@ -127,10 +125,11 @@ EXTRA_OEGN = " \
         fatal_linker_warnings=false  \
         v8_use_external_startup_data=false \
         linux_use_bundled_binutils=false \
-        use_gold=true \
+	use_gold = false \
         ${@bb.utils.contains('PACKAGECONFIG', 'component-build', 'is_component_build=true', 'is_component_build=false', d)} \
         ${@bb.utils.contains('PACKAGECONFIG', 'proprietary-codecs', 'proprietary_codecs=true ffmpeg_branding=\\\"Chrome\\\"', 'proprietary_codecs=false', d)} \
         use_ozone=true \
+        use_jumbo_build = true \
         ozone_auto_platforms=false \
         ozone_platform_headless=true \
         enable_package_mash_services=true \
@@ -187,6 +186,8 @@ python() {
     else:
         d.appendVar('EXTRA_OEGN', ' %s ' % 'is_debug=true')
 }
+
+DEPENDS += " nss"
 
 do_configure() {
         # Run GN
