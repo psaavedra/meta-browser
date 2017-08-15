@@ -125,7 +125,7 @@ EXTRA_OEGN = " \
         fatal_linker_warnings=false  \
         v8_use_external_startup_data=false \
         linux_use_bundled_binutils=false \
-	use_gold = false \
+        use_gold = false \
         ${@bb.utils.contains('PACKAGECONFIG', 'component-build', 'is_component_build=true', 'is_component_build=false', d)} \
         ${@bb.utils.contains('PACKAGECONFIG', 'proprietary-codecs', 'proprietary_codecs=true ffmpeg_branding=\\\"Chrome\\\"', 'proprietary_codecs=false', d)} \
         use_ozone=true \
