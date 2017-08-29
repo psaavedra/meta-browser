@@ -112,12 +112,6 @@ CPUTARGET ?= "unknown_cpu_target"
 
 # Fixme: fix build with v8_use_snapshot=true <http://v8project.blogspot.com.es/2015/09/custom-startup-snapshots.html>
 
-CFLAGS = "${TARGET_CFLAGS}"
-CFLAGS := "${@'${CFLAGS}'.replace('-fpie', '-fPIE')}"
-
-CXXFLAGS = "${TARGET_CXXFLAGS}"
-CXXFLAGS := "${@'${CFLAGS}'.replace('-fPIE', '-fPIE')}"
-
 EXTRA_OEGN = " \
         gold_path=\"\" \
         enable_nacl=false \
@@ -125,7 +119,7 @@ EXTRA_OEGN = " \
         fatal_linker_warnings=false  \
         v8_use_external_startup_data=false \
         linux_use_bundled_binutils=false \
-        use_gold = false \
+        use_gold=true \
         ${@bb.utils.contains('PACKAGECONFIG', 'component-build', 'is_component_build=true', 'is_component_build=false', d)} \
         ${@bb.utils.contains('PACKAGECONFIG', 'proprietary-codecs', 'proprietary_codecs=true ffmpeg_branding=\\\"Chrome\\\"', 'proprietary_codecs=false', d)} \
         use_ozone=true \
@@ -151,9 +145,9 @@ EXTRA_OEGN = " \
         cros_target_cc=\"${CC}\" \
         cros_target_cxx=\"${CXX}\" \
         cros_target_ld=\"${CXX}\" \
-        cros_target_extra_cflags=\"${CFLAGS}\" \
+        cros_target_extra_cflags=\"${TARGET_CFLAGS}\" \
         cros_target_extra_ldflags=\"${TARGET_LDFLAGS}\" \
-        cros_target_extra_cxxflags=\"${CXXFLAGS}\" \
+        cros_target_extra_cxxflags=\"${TARGET_CXXFLAGS}\" \
         cros_target_extra_cppflags=\"${TARGET_CPPFLAGS}\" \
         cros_v8_snapshot_ar=\"${BUILD_AR}\" \
         cros_v8_snapshot_cc=\"${BUILD_CPP}\" \
