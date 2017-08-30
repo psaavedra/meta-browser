@@ -1,7 +1,9 @@
 From 7b24b46b9bca5a90073b1770a7117d25aff289f9 Mon Sep 17 00:00:00 2001
-From: Maksim Sisov <msisov@igalia.com>
+From: Deligor6321 <deligor6321@gmail.com>
 Date: Tue, 29 Aug 2017 06:45:39 +0200
 Subject: [PATCH] Rotate gcc toolchain's build flags
+
+The patch is taken from https://github.com/Igalia/meta-browser/pull/9.
 
 By this, we can ensure chromium libs are compiled with right flags
 and those are not overriden with AGL ones.
