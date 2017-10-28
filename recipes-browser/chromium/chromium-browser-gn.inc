@@ -1,7 +1,7 @@
 include chromium.inc
 
 DESCRIPTION = "Chromium browser"
-DEPENDS += "gn-native"
+DEPENDS += "gn-native gperf-native"
 
 SRC_URI = "\
         http://gsdview.appspot.com/chromium-browser-official/chromium-${PV}.tar.xz \
