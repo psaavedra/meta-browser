@@ -1,7 +1,7 @@
 include chromium.inc
 
 DESCRIPTION = "Chromium browser"
-DEPENDS += "gn-native gperf-native"
+DEPENDS += "gn-native nss-native nspr-native gperf-native"
 
 SRC_URI = "\
         http://gsdview.appspot.com/chromium-browser-official/chromium-${PV}.tar.xz \
@@ -180,8 +180,6 @@ python() {
     else:
         d.appendVar('EXTRA_OEGN', ' %s ' % 'is_debug=true')
 }
-
-DEPENDS += " nss"
 
 do_configure() {
         # Run GN
