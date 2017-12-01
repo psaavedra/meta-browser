@@ -1,0 +1,24 @@
+From 11e39c210749fc5922d1e42a426c4509046cf9db Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Fri, 1 Dec 2017 08:16:18 +0100
+Subject: [PATCH] Remove conflicting wformat flag
+
+---
+ third_party/openh264/BUILD.gn | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/third_party/openh264/BUILD.gn b/third_party/openh264/BUILD.gn
+index 7b9d4588b807..5711f5a776b0 100644
+--- a/third_party/openh264/BUILD.gn
++++ b/third_party/openh264/BUILD.gn
+@@ -15,7 +15,6 @@ config("config") {
+   # GCC and clang flags. MSVS (is_win && !is_clang) does not use cflags.
+   if (!is_win || is_clang) {
+     cflags += [
+-      "-Wno-format",
+       "-Wno-header-hygiene",
+       "-Wno-unused-function",
+       "-Wno-unused-value",
+-- 
+2.11.0
+
