@@ -1,0 +1,30 @@
+From ed31042b773e6707467e124abc0f524ca3e3f65d Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Thu, 21 Dec 2017 15:05:04 +0200
+Subject: [PATCH] V8 qemu wrapper patch. Version 6.5.73
+
+Upstream-Status: Inappropriate [embedder specific]
+
+The patch below makes the V8 binaries run during the build be invoked through
+QEMU, as they are built for the target.
+
+Signed-off-by: Maksim Sisov <misov@igalia.com>
+---
+ BUILD.gn | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 9e2c0291e5..491a2d8e09 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -806,6 +806,7 @@ if (v8_use_snapshot) {
+     ]
+ 
+     args = [
++      "./v8-qemu-wrapper.sh",
+       "./" + rebase_path(get_label_info(":mksnapshot($v8_snapshot_toolchain)",
+                                         "root_out_dir") + "/mksnapshot",
+                          root_build_dir),
+-- 
+2.11.0
+

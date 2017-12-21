@@ -1,0 +1,35 @@
+From 65864b86bd4655c086faf6218bb30a82ecba636a Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Thu, 21 Dec 2017 23:05:57 +0200
+Subject: [PATCH] Fix vcvt_f16_f32 is not declared in this scope.
+
+A warkaround to exclude vcvt_f16_f32 by a build guard.
+---
+ src/jumper/SkJumper_vectors.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/jumper/SkJumper_vectors.h b/src/jumper/SkJumper_vectors.h
+index 44e4247f06..00730202a6 100644
+--- a/src/jumper/SkJumper_vectors.h
++++ b/src/jumper/SkJumper_vectors.h
+@@ -656,7 +656,7 @@ SI F approx_powf(F x, F y) {
+ }
+ 
+ SI F from_half(U16 h) {
+-#if defined(__aarch64__) && !defined(GOOGLE3)  // Temporary workaround for some Google3 builds.
++#if !defined(__aarch64__) && !defined(GOOGLE3)  // Temporary workaround for some Google3 builds.
+     return vcvt_f32_f16(h);
+ 
+ #elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+@@ -676,7 +676,7 @@ SI F from_half(U16 h) {
+ }
+ 
+ SI U16 to_half(F f) {
+-#if defined(__aarch64__) && !defined(GOOGLE3)  // Temporary workaround for some Google3 builds.
++#if !defined(__aarch64__) && !defined(GOOGLE3)  // Temporary workaround for some Google3 builds.
+     return vcvt_f16_f32(f);
+ 
+ #elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+-- 
+2.11.0
+
