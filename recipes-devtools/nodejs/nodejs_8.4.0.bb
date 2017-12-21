@@ -3,7 +3,7 @@ HOMEPAGE = "http://nodejs.org"
 LICENSE = "MIT & BSD & Artistic-2.0"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=e4d35c6120f175e1fbe5ff908b1cf2d6"
 
-DEPENDS = "openssl10 zlib"
+DEPENDS = "openssl-native zlib"
 
 COMPATIBLE_MACHINE_armv4 = "(!.*armv4).*"
 COMPATIBLE_MACHINE_armv5 = "(!.*armv5).*"
@@ -45,7 +45,7 @@ do_configure () {
     GYP_DEFINES="${GYP_DEFINES}" export GYP_DEFINES
     # $TARGET_ARCH settings don't match --dest-cpu settings
    ./configure --prefix=${prefix} --without-intl --without-snapshot --shared-openssl --shared-zlib \
-               --dest-cpu="${@map_nodejs_arch(d.getVar('TARGET_ARCH'), d)}" \
+               --dest-cpu="${@map_nodejs_arch(d.getVar('TARGET_ARCH', True), d)}" \
                --dest-os=linux \
                ${ARCHFLAGS}
 }
