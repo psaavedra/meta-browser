@@ -305,7 +305,7 @@ do_configure_prepend_libc-musl() {
 do_configure() {
 	cd ${S}
 	./build/linux/unbundle/replace_gn_files.py --system-libraries ${GN_UNBUNDLE_LIBS}
-	gn gen --args='${GN_ARGS}' "${OUTPUT_DIR}"
+	gn gen --args='${GN_ARGS}' "${B}"
 }
 
 do_compile() {
