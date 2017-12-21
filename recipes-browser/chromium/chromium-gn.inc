@@ -8,10 +8,6 @@ inherit distro_features_check gtk-icon-cache qemu
 OUTPUT_DIR = "out/Release"
 B = "${S}/${OUTPUT_DIR}"
 
-SRC_URI += " \
-           file://v8-qemu-wrapper.patch \
-"
-
 # Append instead of assigning; the gtk-icon-cache class inherited above also
 # adds packages to DEPENDS.
 DEPENDS += " \
