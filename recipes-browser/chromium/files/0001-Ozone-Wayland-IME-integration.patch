@@ -1,0 +1,3586 @@
+From 304bcc64af4d1e8f32c5528c548ad2542234254f Mon Sep 17 00:00:00 2001
+From: Jani Hautakangas <jani.hautakangas@lge.com>
+Date: Tue, 31 Oct 2017 22:16:39 +0200
+Subject: [PATCH] Ozone Wayland IME integration
+
+Introduce Ozone Wayland IME integration. This patch
+exposes Linux input method context service that can be
+used with ime service on Linux platforms. Ozone Wayland
+platform implements Linux input method context service
+and integrates it with zwp_text_input_v1 protocol.
+
+IME can be enabled by giving --enable-wayland-ime runtime
+parameter
+---
+ chrome/browser/ui/BUILD.gn                         |   2 +
+ .../browser/ui/views/ime_driver/ime_driver_mus.cc  |  23 +
+ .../browser/ui/views/ime_driver/ime_driver_mus.h   |  11 +
+ .../views/ime_driver/input_method_bridge_linux.cc  |  46 ++
+ .../views/ime_driver/input_method_bridge_linux.h   |  38 +
+ services/ui/manifest.json                          |   2 +
+ services/ui/public/interfaces/ime/BUILD.gn         |   1 +
+ .../ime/linux_input_method_context.mojom           |  52 ++
+ third_party/wayland-protocols/BUILD.gn             |  21 +
+ .../text-input-unstable-v1-client-protocol.h       | 842 +++++++++++++++++++++
+ .../text-input-unstable-v1-server-protocol.h       | 727 ++++++++++++++++++
+ .../protocol/text-input-protocol-v1.c              |  92 +++
+ ui/aura/BUILD.gn                                   |   6 +
+ ui/aura/mus/input_method_mus.cc                    |   1 +
+ .../linux_input_method_context_delegate_impl.cc    |  48 ++
+ .../mus/linux_input_method_context_delegate_impl.h |  46 ++
+ .../mus/linux_input_method_context_factory_mus.cc  |  31 +
+ .../mus/linux_input_method_context_factory_mus.h   |  36 +
+ ui/aura/mus/linux_input_method_context_mus.cc      |  57 ++
+ ui/aura/mus/linux_input_method_context_mus.h       |  48 ++
+ ui/ozone/platform/wayland/BUILD.gn                 |   9 +
+ ui/ozone/platform/wayland/fake_server.cc           |  98 +++
+ ui/ozone/platform/wayland/fake_server.h            |  34 +
+ .../platform/wayland/ozone_platform_wayland.cc     |  18 +
+ ui/ozone/platform/wayland/wayland_connection.cc    |  18 +
+ ui/ozone/platform/wayland/wayland_connection.h     |   7 +-
+ .../wayland/wayland_input_method_context.cc        | 126 +++
+ .../wayland/wayland_input_method_context.h         |  54 ++
+ .../wayland_input_method_context_unittests.cc      | 148 ++++
+ ui/ozone/platform/wayland/wayland_object.cc        |  11 +
+ ui/ozone/platform/wayland/wayland_object.h         |  14 +
+ ui/ozone/platform/wayland/wayland_window.cc        |   3 +
+ ui/ozone/platform/wayland/wayland_window.h         |   2 +
+ ui/ozone/platform/wayland/zwp_text_input_wrapper.h |  50 ++
+ .../platform/wayland/zwp_text_input_wrapper_v1.cc  | 187 +++++
+ .../platform/wayland/zwp_text_input_wrapper_v1.h   | 104 +++
+ ui/ozone/public/ozone_switches.cc                  |   3 +
+ ui/ozone/public/ozone_switches.h                   |   2 +
+ 38 files changed, 3017 insertions(+), 1 deletion(-)
+ create mode 100644 chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+ create mode 100644 chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+ create mode 100644 services/ui/public/interfaces/ime/linux_input_method_context.mojom
+ create mode 100644 third_party/wayland-protocols/include/protocol/text-input-unstable-v1-client-protocol.h
+ create mode 100644 third_party/wayland-protocols/include/protocol/text-input-unstable-v1-server-protocol.h
+ create mode 100644 third_party/wayland-protocols/protocol/text-input-protocol-v1.c
+ create mode 100644 ui/aura/mus/linux_input_method_context_delegate_impl.cc
+ create mode 100644 ui/aura/mus/linux_input_method_context_delegate_impl.h
+ create mode 100644 ui/aura/mus/linux_input_method_context_factory_mus.cc
+ create mode 100644 ui/aura/mus/linux_input_method_context_factory_mus.h
+ create mode 100644 ui/aura/mus/linux_input_method_context_mus.cc
+ create mode 100644 ui/aura/mus/linux_input_method_context_mus.h
+ create mode 100644 ui/ozone/platform/wayland/wayland_input_method_context.cc
+ create mode 100644 ui/ozone/platform/wayland/wayland_input_method_context.h
+ create mode 100644 ui/ozone/platform/wayland/wayland_input_method_context_unittests.cc
+ create mode 100644 ui/ozone/platform/wayland/zwp_text_input_wrapper.h
+ create mode 100644 ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc
+ create mode 100644 ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h
+
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index c538388deb8c..bdcc47c3dd53 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -2897,6 +2897,8 @@ split_static_library("ui") {
+         # apart from aura::Window, which is also not supported).
+         "views/ime_driver/ime_driver_mus.cc",
+         "views/ime_driver/ime_driver_mus.h",
++        "views/ime_driver/input_method_bridge_linux.cc",
++        "views/ime_driver/input_method_bridge_linux.h",
+         "views/ime_driver/remote_text_input_client.cc",
+         "views/ime_driver/remote_text_input_client.h",
+         "views/ime_driver/simple_input_method.cc",
+diff --git a/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc b/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc
+index 746cd9b9851b..f99815ed31b6 100644
+--- a/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc
++++ b/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc
+@@ -16,12 +16,25 @@
+ 
+ #if defined(OS_CHROMEOS)
+ #include "chrome/browser/ui/views/ime_driver/input_method_bridge_chromeos.h"
++#elif defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++#include "chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h"
++#include "ui/aura/mus/linux_input_method_context_factory_mus.h"
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++#include "ui/base/ime/linux/linux_input_method_context_factory.h"
+ #else
+ #include "chrome/browser/ui/views/ime_driver/simple_input_method.h"
+ #endif  // defined(OS_CHROMEOS)
+ 
+ IMEDriver::IMEDriver() {
+   ui::IMEBridge::Initialize();
++
++#if defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++  input_method_context_factory_ =
++      base::MakeUnique<aura::LinuxInputMethodContextFactoryMus>(
++          content::ServiceManagerConnection::GetForProcess()->GetConnector());
++  ui::LinuxInputMethodContextFactory::SetInstance(
++      input_method_context_factory_.get());
++#endif
+ }
+ 
+ IMEDriver::~IMEDriver() {}
+@@ -50,6 +63,16 @@ void IMEDriver::StartSession(ui::mojom::StartSessionDetailsPtr details) {
+   mojo::MakeStrongBinding(
+       base::MakeUnique<InputMethodBridge>(std::move(remote_client)),
+       std::move(details->input_method_request));
++#elif defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++  std::unique_ptr<RemoteTextInputClient> remote_client =
++      base::MakeUnique<RemoteTextInputClient>(
++          ui::mojom::TextInputClientPtr(std::move(details->client)),
++          details->text_input_type, details->text_input_mode,
++          details->text_direction, details->text_input_flags,
++          details->caret_bounds);
++  mojo::MakeStrongBinding(
++      base::MakeUnique<InputMethodBridgeLinux>(std::move(remote_client)),
++      std::move(details->input_method_request));
+ #else
+   mojo::MakeStrongBinding(
+       base::MakeUnique<SimpleInputMethod>(ui::mojom::TextInputClientPtr(std::move(details->client))),
+diff --git a/chrome/browser/ui/views/ime_driver/ime_driver_mus.h b/chrome/browser/ui/views/ime_driver/ime_driver_mus.h
+index 50d89c1a9b15..5145edfef0bf 100644
+--- a/chrome/browser/ui/views/ime_driver/ime_driver_mus.h
++++ b/chrome/browser/ui/views/ime_driver/ime_driver_mus.h
+@@ -12,6 +12,12 @@
+ 
+ #include "services/ui/public/interfaces/ime/ime.mojom.h"
+ 
++#if defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++namespace aura {
++class LinuxInputMethodContextFactoryMus;
++}
++#endif
++
+ class IMEDriver : public ui::mojom::IMEDriver {
+  public:
+   IMEDriver();
+@@ -24,6 +30,11 @@ class IMEDriver : public ui::mojom::IMEDriver {
+   // ui::mojom::IMEDriver:
+   void StartSession(ui::mojom::StartSessionDetailsPtr details) override;
+ 
++#if defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++  std::unique_ptr<aura::LinuxInputMethodContextFactoryMus>
++      input_method_context_factory_;
++#endif
++
+   DISALLOW_COPY_AND_ASSIGN(IMEDriver);
+ };
+ 
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+new file mode 100644
+index 000000000000..1de28aff206a
+--- /dev/null
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+@@ -0,0 +1,46 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h"
++
++#include <utility>
++
++#include "base/memory/ptr_util.h"
++#include "ui/base/ime/input_method_auralinux.h"
++
++InputMethodBridgeLinux::InputMethodBridgeLinux(
++    std::unique_ptr<RemoteTextInputClient> client)
++    : client_(std::move(client)),
++      input_method_linux_(
++          base::MakeUnique<ui::InputMethodAuraLinux>(client_.get())) {
++  input_method_linux_->SetFocusedTextInputClient(client_.get());
++}
++
++InputMethodBridgeLinux::~InputMethodBridgeLinux() {}
++
++void InputMethodBridgeLinux::OnTextInputTypeChanged(
++    ui::TextInputType text_input_type) {
++  client_->SetTextInputType(text_input_type);
++  input_method_linux_->OnTextInputTypeChanged(client_.get());
++}
++
++void InputMethodBridgeLinux::OnCaretBoundsChanged(
++    const gfx::Rect& caret_bounds) {
++  client_->SetCaretBounds(caret_bounds);
++  input_method_linux_->OnCaretBoundsChanged(client_.get());
++}
++
++void InputMethodBridgeLinux::ProcessKeyEvent(std::unique_ptr<ui::Event> event,
++                                             ProcessKeyEventCallback callback) {
++  DCHECK(event->IsKeyEvent());
++  ui::KeyEvent* key_event = event->AsKeyEvent();
++  if (!key_event->is_char())
++    input_method_linux_->DispatchKeyEvent(key_event);
++  const bool handled = false;
++  std::move(callback).Run(handled);
++}
++
++void InputMethodBridgeLinux::CancelComposition() {
++  input_method_linux_->CancelComposition(client_.get());
++}
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+new file mode 100644
+index 000000000000..87d5a8558c65
+--- /dev/null
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+@@ -0,0 +1,38 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_IME_DRIVER_INPUT_METHOD_BRIDGE_LINUX_H_
++#define CHROME_BROWSER_UI_VIEWS_IME_DRIVER_INPUT_METHOD_BRIDGE_LINUX_H_
++
++#include "chrome/browser/ui/views/ime_driver/remote_text_input_client.h"
++#include "services/ui/public/interfaces/ime/ime.mojom.h"
++
++namespace ui {
++class InputMethodAuraLinux;
++}
++
++// This bridges between mojo InputMethod API and aura::InputMethodBridgeLinux.
++// It forwards the received events to an instance of
++// aura::InputMethodBridgeLinux.
++class InputMethodBridgeLinux : public ui::mojom::InputMethod {
++ public:
++  explicit InputMethodBridgeLinux(
++      std::unique_ptr<RemoteTextInputClient> client);
++  ~InputMethodBridgeLinux() override;
++
++  // ui::mojom::InputMethod:
++  void OnTextInputTypeChanged(ui::TextInputType text_input_type) override;
++  void OnCaretBoundsChanged(const gfx::Rect& caret_bounds) override;
++  void ProcessKeyEvent(std::unique_ptr<ui::Event> key_event,
++                       ProcessKeyEventCallback callback) override;
++  void CancelComposition() override;
++
++ private:
++  std::unique_ptr<RemoteTextInputClient> client_;
++  std::unique_ptr<ui::InputMethodAuraLinux> input_method_linux_;
++
++  DISALLOW_COPY_AND_ASSIGN(InputMethodBridgeLinux);
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_IME_DRIVER_INPUT_METHOD_BRIDGE_LINUX_H_
+diff --git a/services/ui/manifest.json b/services/ui/manifest.json
+index 3160ed5600af..48e9fa45a19a 100644
+--- a/services/ui/manifest.json
++++ b/services/ui/manifest.json
+@@ -14,6 +14,8 @@
+           "ui::mojom::Clipboard",
+           "ui::mojom::DisplayManager",
+           "ui::mojom::Gpu",
++          "ui::mojom::LinuxInputMethodContext",
++          "ui::mojom::LinuxInputMethodContextDelegate",
+           "ui::mojom::IMEDriver",
+           "ui::mojom::InputDeviceServer",
+           "ui::mojom::WindowTreeFactory"
+diff --git a/services/ui/public/interfaces/ime/BUILD.gn b/services/ui/public/interfaces/ime/BUILD.gn
+index e3cb247b0f61..98fae33d5620 100644
+--- a/services/ui/public/interfaces/ime/BUILD.gn
++++ b/services/ui/public/interfaces/ime/BUILD.gn
+@@ -7,6 +7,7 @@ import("//mojo/public/tools/bindings/mojom.gni")
+ mojom("ime") {
+   sources = [
+     "ime.mojom",
++    "linux_input_method_context.mojom",
+   ]
+ 
+   public_deps = [
+diff --git a/services/ui/public/interfaces/ime/linux_input_method_context.mojom b/services/ui/public/interfaces/ime/linux_input_method_context.mojom
+new file mode 100644
+index 000000000000..9cdf7e249c75
+--- /dev/null
++++ b/services/ui/public/interfaces/ime/linux_input_method_context.mojom
+@@ -0,0 +1,52 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++module ui.mojom;
++
++import "mojo/common/string16.mojom";
++import "ui/events/mojo/event.mojom";
++import "ui/events/mojo/event.mojom";
++import "ui/gfx/geometry/mojo/geometry.mojom";
++import "services/ui/public/interfaces/ime/ime.mojom";
++
++// An interface of input method context for input method frameworks on
++// GNU/Linux and likes
++interface LinuxInputMethodContext {
++  Initialize(LinuxInputMethodContextDelegate delegate, bool is_simple);
++
++  // Dispatches the key event to an underlying IME.  Returns true if the key
++  // event is handled, otherwise false. A client must set the text input type
++  // before dispatching a key event.
++  DispatchKeyEvent(ui.mojom.Event key_event) => (bool handled);
++
++  // Tells the system IME for the cursor rect which is relative to the
++  // client window rect.
++  SetCursorLocation(gfx.mojom.Rect rect);
++
++  // Resets the context.  A client needs to call OnTextInputTypeChanged() again
++  // before calling DispatchKeyEvent().
++  Reset();
++
++  // Focuses the context.
++  Focus();
++
++  // Blurs the context.
++  Blur();
++};
++
++// An interface of callback functions called from LinuxInputMethodContext.
++interface LinuxInputMethodContextDelegate {
++  // Commits the |text| to the text input client.
++  OnCommit(mojo.common.mojom.String16 text);
++
++  // Sets the composition text to the text input client.
++  OnPreeditChanged(ui.mojom.CompositionText composition_text);
++
++  // Cleans up a composition session and makes sure that the composition text is
++  // cleared.
++  OnPreeditEnd();
++
++  // Prepares things for a new composition session.
++  OnPreeditStart();
++};
+diff --git a/third_party/wayland-protocols/BUILD.gn b/third_party/wayland-protocols/BUILD.gn
+index 257031a76260..2b744e4e5680 100644
+--- a/third_party/wayland-protocols/BUILD.gn
++++ b/third_party/wayland-protocols/BUILD.gn
+@@ -301,3 +301,24 @@ source_set("keyboard_extension_protocol") {
+ 
+   public_configs = [ ":keyboard_extension_protocol_config" ]
+ }
++
++config("text_input_protocol_config") {
++  include_dirs = [ "include/protocol" ]
++}
++
++source_set("text_input_protocol") {
++  sources = [
++    "include/protocol/text-input-unstable-v1-client-protocol.h",
++    "include/protocol/text-inputunstable-v1-server-protocol.h",
++    "protocol/text-input-protocol-v1.c",
++  ]
++
++  deps = [
++    "//third_party/wayland:wayland_util",
++  ]
++
++  configs -= [ "//build/config/compiler:chromium_code" ]
++  configs += [ "//build/config/compiler:no_chromium_code" ]
++
++  public_configs = [ ":text_input_protocol_config" ]
++}
+diff --git a/third_party/wayland-protocols/include/protocol/text-input-unstable-v1-client-protocol.h b/third_party/wayland-protocols/include/protocol/text-input-unstable-v1-client-protocol.h
+new file mode 100644
+index 000000000000..d9ffda48f6b1
+--- /dev/null
++++ b/third_party/wayland-protocols/include/protocol/text-input-unstable-v1-client-protocol.h
+@@ -0,0 +1,842 @@
++/* Generated by wayland-scanner 1.12.0 */
++
++#ifndef TEXT_INPUT_UNSTABLE_V1_CLIENT_PROTOCOL_H
++#define TEXT_INPUT_UNSTABLE_V1_CLIENT_PROTOCOL_H
++
++#include <stddef.h>
++#include <stdint.h>
++#include "wayland-client.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * @page page_text_input_unstable_v1 The text_input_unstable_v1 protocol
++ * @section page_ifaces_text_input_unstable_v1 Interfaces
++ * - @subpage page_iface_zwp_text_input_v1 - text input
++ * - @subpage page_iface_zwp_text_input_manager_v1 - text input manager
++ * @section page_copyright_text_input_unstable_v1 Copyright
++ * <pre>
++ *
++ * Copyright © 2012, 2013 Intel Corporation
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ * </pre>
++ */
++struct wl_seat;
++struct wl_surface;
++struct zwp_text_input_manager_v1;
++struct zwp_text_input_v1;
++
++/**
++ * @page page_iface_zwp_text_input_v1 zwp_text_input_v1
++ * @section page_iface_zwp_text_input_v1_desc Description
++ *
++ * An object used for text input. Adds support for text input and input
++ * methods to applications. A text_input object is created from a
++ * wl_text_input_manager and corresponds typically to a text entry in an
++ * application.
++ *
++ * Requests are used to activate/deactivate the text_input object and set
++ * state information like surrounding and selected text or the content type.
++ * The information about entered text is sent to the text_input object via
++ * the pre-edit and commit events. Using this interface removes the need
++ * for applications to directly process hardware key events and compose text
++ * out of them.
++ *
++ * Text is generally UTF-8 encoded, indices and lengths are in bytes.
++ *
++ * Serials are used to synchronize the state between the text input and
++ * an input method. New serials are sent by the text input in the
++ * commit_state request and are used by the input method to indicate
++ * the known text input state in events like preedit_string, commit_string,
++ * and keysym. The text input can then ignore events from the input method
++ * which are based on an outdated state (for example after a reset).
++ *
++ * Warning! The protocol described in this file is experimental and
++ * backward incompatible changes may be made. Backward compatible changes
++ * may be added together with the corresponding interface version bump.
++ * Backward incompatible changes are done by bumping the version number in
++ * the protocol and interface names and resetting the interface version.
++ * Once the protocol is to be declared stable, the 'z' prefix and the
++ * version number in the protocol and interface names are removed and the
++ * interface version number is reset.
++ * @section page_iface_zwp_text_input_v1_api API
++ * See @ref iface_zwp_text_input_v1.
++ */
++/**
++ * @defgroup iface_zwp_text_input_v1 The zwp_text_input_v1 interface
++ *
++ * An object used for text input. Adds support for text input and input
++ * methods to applications. A text_input object is created from a
++ * wl_text_input_manager and corresponds typically to a text entry in an
++ * application.
++ *
++ * Requests are used to activate/deactivate the text_input object and set
++ * state information like surrounding and selected text or the content type.
++ * The information about entered text is sent to the text_input object via
++ * the pre-edit and commit events. Using this interface removes the need
++ * for applications to directly process hardware key events and compose text
++ * out of them.
++ *
++ * Text is generally UTF-8 encoded, indices and lengths are in bytes.
++ *
++ * Serials are used to synchronize the state between the text input and
++ * an input method. New serials are sent by the text input in the
++ * commit_state request and are used by the input method to indicate
++ * the known text input state in events like preedit_string, commit_string,
++ * and keysym. The text input can then ignore events from the input method
++ * which are based on an outdated state (for example after a reset).
++ *
++ * Warning! The protocol described in this file is experimental and
++ * backward incompatible changes may be made. Backward compatible changes
++ * may be added together with the corresponding interface version bump.
++ * Backward incompatible changes are done by bumping the version number in
++ * the protocol and interface names and resetting the interface version.
++ * Once the protocol is to be declared stable, the 'z' prefix and the
++ * version number in the protocol and interface names are removed and the
++ * interface version number is reset.
++ */
++extern const struct wl_interface zwp_text_input_v1_interface;
++/**
++ * @page page_iface_zwp_text_input_manager_v1 zwp_text_input_manager_v1
++ * @section page_iface_zwp_text_input_manager_v1_desc Description
++ *
++ * A factory for text_input objects. This object is a global singleton.
++ * @section page_iface_zwp_text_input_manager_v1_api API
++ * See @ref iface_zwp_text_input_manager_v1.
++ */
++/**
++ * @defgroup iface_zwp_text_input_manager_v1 The zwp_text_input_manager_v1
++ * interface
++ *
++ * A factory for text_input objects. This object is a global singleton.
++ */
++extern const struct wl_interface zwp_text_input_manager_v1_interface;
++
++#ifndef ZWP_TEXT_INPUT_V1_CONTENT_HINT_ENUM
++#define ZWP_TEXT_INPUT_V1_CONTENT_HINT_ENUM
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * content hint
++ *
++ * Content hint is a bitmask to allow to modify the behavior of the text
++ * input.
++ */
++enum zwp_text_input_v1_content_hint {
++  /**
++   * no special behaviour
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_NONE = 0x0,
++  /**
++   * auto completion, correction and capitalization
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_DEFAULT = 0x7,
++  /**
++   * hidden and sensitive text
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_PASSWORD = 0xc0,
++  /**
++   * suggest word completions
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_AUTO_COMPLETION = 0x1,
++  /**
++   * suggest word corrections
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_AUTO_CORRECTION = 0x2,
++  /**
++   * switch to uppercase letters at the start of a sentence
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_AUTO_CAPITALIZATION = 0x4,
++  /**
++   * prefer lowercase letters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_LOWERCASE = 0x8,
++  /**
++   * prefer uppercase letters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_UPPERCASE = 0x10,
++  /**
++   * prefer casing for titles and headings (can be language dependent)
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_TITLECASE = 0x20,
++  /**
++   * characters should be hidden
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_HIDDEN_TEXT = 0x40,
++  /**
++   * typed text should not be stored
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_SENSITIVE_DATA = 0x80,
++  /**
++   * just latin characters should be entered
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_LATIN = 0x100,
++  /**
++   * the text input is multiline
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_MULTILINE = 0x200,
++};
++#endif /* ZWP_TEXT_INPUT_V1_CONTENT_HINT_ENUM */
++
++#ifndef ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ENUM
++#define ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ENUM
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * content purpose
++ *
++ * The content purpose allows to specify the primary purpose of a text
++ * input.
++ *
++ * This allows an input method to show special purpose input panels with
++ * extra characters or to disallow some characters.
++ */
++enum zwp_text_input_v1_content_purpose {
++  /**
++   * default input, allowing all characters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NORMAL = 0,
++  /**
++   * allow only alphabetic characters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ALPHA = 1,
++  /**
++   * allow only digits
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_DIGITS = 2,
++  /**
++   * input a number (including decimal separator and sign)
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NUMBER = 3,
++  /**
++   * input a phone number
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_PHONE = 4,
++  /**
++   * input an URL
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_URL = 5,
++  /**
++   * input an email address
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_EMAIL = 6,
++  /**
++   * input a name of a person
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NAME = 7,
++  /**
++   * input a password (combine with password or sensitive_data hint)
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_PASSWORD = 8,
++  /**
++   * input a date
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_DATE = 9,
++  /**
++   * input a time
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_TIME = 10,
++  /**
++   * input a date and time
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_DATETIME = 11,
++  /**
++   * input for a terminal
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_TERMINAL = 12,
++};
++#endif /* ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ENUM */
++
++#ifndef ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ENUM
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ENUM
++enum zwp_text_input_v1_preedit_style {
++  /**
++   * default style for composing text
++   */
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_DEFAULT = 0,
++  /**
++   * style should be the same as in non-composing text
++   */
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_NONE = 1,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ACTIVE = 2,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_INACTIVE = 3,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_HIGHLIGHT = 4,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_UNDERLINE = 5,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_SELECTION = 6,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_INCORRECT = 7,
++};
++#endif /* ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ENUM */
++
++#ifndef ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_ENUM
++#define ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_ENUM
++enum zwp_text_input_v1_text_direction {
++  /**
++   * automatic text direction based on text and language
++   */
++  ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_AUTO = 0,
++  /**
++   * left-to-right
++   */
++  ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_LTR = 1,
++  /**
++   * right-to-left
++   */
++  ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_RTL = 2,
++};
++#endif /* ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_ENUM */
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * @struct zwp_text_input_v1_listener
++ */
++struct zwp_text_input_v1_listener {
++  /**
++   * enter event
++   *
++   * Notify the text_input object when it received focus. Typically
++   * in response to an activate request.
++   */
++  void (*enter)(void* data,
++                struct zwp_text_input_v1* zwp_text_input_v1,
++                struct wl_surface* surface);
++  /**
++   * leave event
++   *
++   * Notify the text_input object when it lost focus. Either in
++   * response to a deactivate request or when the assigned surface
++   * lost focus or was destroyed.
++   */
++  void (*leave)(void* data, struct zwp_text_input_v1* zwp_text_input_v1);
++  /**
++   * modifiers map
++   *
++   * Transfer an array of 0-terminated modifier names. The position
++   * in the array is the index of the modifier as used in the
++   * modifiers bitmask in the keysym event.
++   */
++  void (*modifiers_map)(void* data,
++                        struct zwp_text_input_v1* zwp_text_input_v1,
++                        struct wl_array* map);
++  /**
++   * state of the input panel
++   *
++   * Notify when the visibility state of the input panel changed.
++   */
++  void (*input_panel_state)(void* data,
++                            struct zwp_text_input_v1* zwp_text_input_v1,
++                            uint32_t state);
++  /**
++   * pre-edit
++   *
++   * Notify when a new composing text (pre-edit) should be set
++   * around the current cursor position. Any previously set composing
++   * text should be removed.
++   *
++   * The commit text can be used to replace the preedit text on reset
++   * (for example on unfocus).
++   *
++   * The text input should also handle all preedit_style and
++   * preedit_cursor events occurring directly before preedit_string.
++   * @param serial serial of the latest known text input state
++   */
++  void (*preedit_string)(void* data,
++                         struct zwp_text_input_v1* zwp_text_input_v1,
++                         uint32_t serial,
++                         const char* text,
++                         const char* commit);
++  /**
++   * pre-edit styling
++   *
++   * Sets styling information on composing text. The style is
++   * applied for length bytes from index relative to the beginning of
++   * the composing text (as byte offset). Multiple styles can be
++   * applied to a composing text by sending multiple preedit_styling
++   * events.
++   *
++   * This event is handled as part of a following preedit_string
++   * event.
++   */
++  void (*preedit_styling)(void* data,
++                          struct zwp_text_input_v1* zwp_text_input_v1,
++                          uint32_t index,
++                          uint32_t length,
++                          uint32_t style);
++  /**
++   * pre-edit cursor
++   *
++   * Sets the cursor position inside the composing text (as byte
++   * offset) relative to the start of the composing text. When index
++   * is a negative number no cursor is shown.
++   *
++   * This event is handled as part of a following preedit_string
++   * event.
++   */
++  void (*preedit_cursor)(void* data,
++                         struct zwp_text_input_v1* zwp_text_input_v1,
++                         int32_t index);
++  /**
++   * commit
++   *
++   * Notify when text should be inserted into the editor widget.
++   * The text to commit could be either just a single character after
++   * a key press or the result of some composing (pre-edit). It could
++   * also be an empty text when some text should be removed (see
++   * delete_surrounding_text) or when the input cursor should be
++   * moved (see cursor_position).
++   *
++   * Any previously set composing text should be removed.
++   * @param serial serial of the latest known text input state
++   */
++  void (*commit_string)(void* data,
++                        struct zwp_text_input_v1* zwp_text_input_v1,
++                        uint32_t serial,
++                        const char* text);
++  /**
++   * set cursor to new position
++   *
++   * Notify when the cursor or anchor position should be modified.
++   *
++   * This event should be handled as part of a following
++   * commit_string event.
++   */
++  void (*cursor_position)(void* data,
++                          struct zwp_text_input_v1* zwp_text_input_v1,
++                          int32_t index,
++                          int32_t anchor);
++  /**
++   * delete surrounding text
++   *
++   * Notify when the text around the current cursor position should
++   * be deleted.
++   *
++   * Index is relative to the current cursor (in bytes). Length is
++   * the length of deleted text (in bytes).
++   *
++   * This event should be handled as part of a following
++   * commit_string event.
++   */
++  void (*delete_surrounding_text)(void* data,
++                                  struct zwp_text_input_v1* zwp_text_input_v1,
++                                  int32_t index,
++                                  uint32_t length);
++  /**
++   * keysym
++   *
++   * Notify when a key event was sent. Key events should not be
++   * used for normal text input operations, which should be done with
++   * commit_string, delete_surrounding_text, etc. The key event
++   * follows the wl_keyboard key event convention. Sym is an XKB
++   * keysym, state a wl_keyboard key_state. Modifiers are a mask for
++   * effective modifiers (where the modifier indices are set by the
++   * modifiers_map event)
++   * @param serial serial of the latest known text input state
++   */
++  void (*keysym)(void* data,
++                 struct zwp_text_input_v1* zwp_text_input_v1,
++                 uint32_t serial,
++                 uint32_t time,
++                 uint32_t sym,
++                 uint32_t state,
++                 uint32_t modifiers);
++  /**
++   * language
++   *
++   * Sets the language of the input text. The "language" argument
++   * is an RFC-3066 format language tag.
++   * @param serial serial of the latest known text input state
++   */
++  void (*language)(void* data,
++                   struct zwp_text_input_v1* zwp_text_input_v1,
++                   uint32_t serial,
++                   const char* language);
++  /**
++   * text direction
++   *
++   * Sets the text direction of input text.
++   *
++   * It is mainly needed for showing an input cursor on the correct
++   * side of the editor when there is no input done yet and making
++   * sure neutral direction text is laid out properly.
++   * @param serial serial of the latest known text input state
++   */
++  void (*text_direction)(void* data,
++                         struct zwp_text_input_v1* zwp_text_input_v1,
++                         uint32_t serial,
++                         uint32_t direction);
++};
++
++/**
++ * @ingroup zwp_text_input_v1_iface
++ */
++static inline int zwp_text_input_v1_add_listener(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    const struct zwp_text_input_v1_listener* listener,
++    void* data) {
++  return wl_proxy_add_listener((struct wl_proxy*)zwp_text_input_v1,
++                               (void (**)(void))listener, data);
++}
++
++#define ZWP_TEXT_INPUT_V1_ACTIVATE 0
++#define ZWP_TEXT_INPUT_V1_DEACTIVATE 1
++#define ZWP_TEXT_INPUT_V1_SHOW_INPUT_PANEL 2
++#define ZWP_TEXT_INPUT_V1_HIDE_INPUT_PANEL 3
++#define ZWP_TEXT_INPUT_V1_RESET 4
++#define ZWP_TEXT_INPUT_V1_SET_SURROUNDING_TEXT 5
++#define ZWP_TEXT_INPUT_V1_SET_CONTENT_TYPE 6
++#define ZWP_TEXT_INPUT_V1_SET_CURSOR_RECTANGLE 7
++#define ZWP_TEXT_INPUT_V1_SET_PREFERRED_LANGUAGE 8
++#define ZWP_TEXT_INPUT_V1_COMMIT_STATE 9
++#define ZWP_TEXT_INPUT_V1_INVOKE_ACTION 10
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_ENTER_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_LEAVE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_MODIFIERS_MAP_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_INPUT_PANEL_STATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STRING_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STYLING_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_PREEDIT_CURSOR_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_COMMIT_STRING_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_CURSOR_POSITION_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_DELETE_SURROUNDING_TEXT_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_KEYSYM_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_LANGUAGE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_SINCE_VERSION 1
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_ACTIVATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_DEACTIVATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SHOW_INPUT_PANEL_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_HIDE_INPUT_PANEL_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_RESET_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_SURROUNDING_TEXT_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_CONTENT_TYPE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_CURSOR_RECTANGLE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_PREFERRED_LANGUAGE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_COMMIT_STATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_INVOKE_ACTION_SINCE_VERSION 1
++
++/** @ingroup iface_zwp_text_input_v1 */
++static inline void zwp_text_input_v1_set_user_data(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    void* user_data) {
++  wl_proxy_set_user_data((struct wl_proxy*)zwp_text_input_v1, user_data);
++}
++
++/** @ingroup iface_zwp_text_input_v1 */
++static inline void* zwp_text_input_v1_get_user_data(
++    struct zwp_text_input_v1* zwp_text_input_v1) {
++  return wl_proxy_get_user_data((struct wl_proxy*)zwp_text_input_v1);
++}
++
++static inline uint32_t zwp_text_input_v1_get_version(
++    struct zwp_text_input_v1* zwp_text_input_v1) {
++  return wl_proxy_get_version((struct wl_proxy*)zwp_text_input_v1);
++}
++
++/** @ingroup iface_zwp_text_input_v1 */
++static inline void zwp_text_input_v1_destroy(
++    struct zwp_text_input_v1* zwp_text_input_v1) {
++  wl_proxy_destroy((struct wl_proxy*)zwp_text_input_v1);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Requests the text_input object to be activated (typically when the
++ * text entry gets focus).
++ *
++ * The seat argument is a wl_seat which maintains the focus for this
++ * activation. The surface argument is a wl_surface assigned to the
++ * text_input object and tracked for focus lost. The enter event
++ * is emitted on successful activation.
++ */
++static inline void zwp_text_input_v1_activate(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    struct wl_seat* seat,
++    struct wl_surface* surface) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_ACTIVATE, seat, surface);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Requests the text_input object to be deactivated (typically when the
++ * text entry lost focus). The seat argument is a wl_seat which was used
++ * for activation.
++ */
++static inline void zwp_text_input_v1_deactivate(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    struct wl_seat* seat) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_DEACTIVATE, seat);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Requests input panels (virtual keyboard) to show.
++ */
++static inline void zwp_text_input_v1_show_input_panel(
++    struct zwp_text_input_v1* zwp_text_input_v1) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_SHOW_INPUT_PANEL);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Requests input panels (virtual keyboard) to hide.
++ */
++static inline void zwp_text_input_v1_hide_input_panel(
++    struct zwp_text_input_v1* zwp_text_input_v1) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_HIDE_INPUT_PANEL);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Should be called by an editor widget when the input state should be
++ * reset, for example after the text was changed outside of the normal
++ * input method flow.
++ */
++static inline void zwp_text_input_v1_reset(
++    struct zwp_text_input_v1* zwp_text_input_v1) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_RESET);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Sets the plain surrounding text around the input position. Text is
++ * UTF-8 encoded. Cursor is the byte offset within the
++ * surrounding text. Anchor is the byte offset of the
++ * selection anchor within the surrounding text. If there is no selected
++ * text anchor, then it is the same as cursor.
++ */
++static inline void zwp_text_input_v1_set_surrounding_text(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    const char* text,
++    uint32_t cursor,
++    uint32_t anchor) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_SET_SURROUNDING_TEXT, text, cursor,
++                   anchor);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Sets the content purpose and content hint. While the purpose is the
++ * basic purpose of an input field, the hint flags allow to modify some
++ * of the behavior.
++ *
++ * When no content type is explicitly set, a normal content purpose with
++ * default hints (auto completion, auto correction, auto capitalization)
++ * should be assumed.
++ */
++static inline void zwp_text_input_v1_set_content_type(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    uint32_t hint,
++    uint32_t purpose) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_SET_CONTENT_TYPE, hint, purpose);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++static inline void zwp_text_input_v1_set_cursor_rectangle(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    int32_t x,
++    int32_t y,
++    int32_t width,
++    int32_t height) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_SET_CURSOR_RECTANGLE, x, y, width, height);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ *
++ * Sets a specific language. This allows for example a virtual keyboard to
++ * show a language specific layout. The "language" argument is an RFC-3066
++ * format language tag.
++ *
++ * It could be used for example in a word processor to indicate the
++ * language of the currently edited document or in an instant message
++ * application which tracks languages of contacts.
++ */
++static inline void zwp_text_input_v1_set_preferred_language(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    const char* language) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_SET_PREFERRED_LANGUAGE, language);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++static inline void zwp_text_input_v1_commit_state(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    uint32_t serial) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_COMMIT_STATE, serial);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++static inline void zwp_text_input_v1_invoke_action(
++    struct zwp_text_input_v1* zwp_text_input_v1,
++    uint32_t button,
++    uint32_t index) {
++  wl_proxy_marshal((struct wl_proxy*)zwp_text_input_v1,
++                   ZWP_TEXT_INPUT_V1_INVOKE_ACTION, button, index);
++}
++
++#define ZWP_TEXT_INPUT_MANAGER_V1_CREATE_TEXT_INPUT 0
++
++/**
++ * @ingroup iface_zwp_text_input_manager_v1
++ */
++#define ZWP_TEXT_INPUT_MANAGER_V1_CREATE_TEXT_INPUT_SINCE_VERSION 1
++
++/** @ingroup iface_zwp_text_input_manager_v1 */
++static inline void zwp_text_input_manager_v1_set_user_data(
++    struct zwp_text_input_manager_v1* zwp_text_input_manager_v1,
++    void* user_data) {
++  wl_proxy_set_user_data((struct wl_proxy*)zwp_text_input_manager_v1,
++                         user_data);
++}
++
++/** @ingroup iface_zwp_text_input_manager_v1 */
++static inline void* zwp_text_input_manager_v1_get_user_data(
++    struct zwp_text_input_manager_v1* zwp_text_input_manager_v1) {
++  return wl_proxy_get_user_data((struct wl_proxy*)zwp_text_input_manager_v1);
++}
++
++static inline uint32_t zwp_text_input_manager_v1_get_version(
++    struct zwp_text_input_manager_v1* zwp_text_input_manager_v1) {
++  return wl_proxy_get_version((struct wl_proxy*)zwp_text_input_manager_v1);
++}
++
++/** @ingroup iface_zwp_text_input_manager_v1 */
++static inline void zwp_text_input_manager_v1_destroy(
++    struct zwp_text_input_manager_v1* zwp_text_input_manager_v1) {
++  wl_proxy_destroy((struct wl_proxy*)zwp_text_input_manager_v1);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_manager_v1
++ *
++ * Creates a new text_input object.
++ */
++static inline struct zwp_text_input_v1*
++zwp_text_input_manager_v1_create_text_input(
++    struct zwp_text_input_manager_v1* zwp_text_input_manager_v1) {
++  struct wl_proxy* id;
++
++  id = wl_proxy_marshal_constructor((struct wl_proxy*)zwp_text_input_manager_v1,
++                                    ZWP_TEXT_INPUT_MANAGER_V1_CREATE_TEXT_INPUT,
++                                    &zwp_text_input_v1_interface, NULL);
++
++  return (struct zwp_text_input_v1*)id;
++}
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/third_party/wayland-protocols/include/protocol/text-input-unstable-v1-server-protocol.h b/third_party/wayland-protocols/include/protocol/text-input-unstable-v1-server-protocol.h
+new file mode 100644
+index 000000000000..899303781604
+--- /dev/null
++++ b/third_party/wayland-protocols/include/protocol/text-input-unstable-v1-server-protocol.h
+@@ -0,0 +1,727 @@
++/* Generated by wayland-scanner 1.12.0 */
++
++#ifndef TEXT_INPUT_UNSTABLE_V1_SERVER_PROTOCOL_H
++#define TEXT_INPUT_UNSTABLE_V1_SERVER_PROTOCOL_H
++
++#include <stddef.h>
++#include <stdint.h>
++#include "wayland-server.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++struct wl_client;
++struct wl_resource;
++
++/**
++ * @page page_text_input_unstable_v1 The text_input_unstable_v1 protocol
++ * @section page_ifaces_text_input_unstable_v1 Interfaces
++ * - @subpage page_iface_zwp_text_input_v1 - text input
++ * - @subpage page_iface_zwp_text_input_manager_v1 - text input manager
++ * @section page_copyright_text_input_unstable_v1 Copyright
++ * <pre>
++ *
++ * Copyright © 2012, 2013 Intel Corporation
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ * </pre>
++ */
++struct wl_seat;
++struct wl_surface;
++struct zwp_text_input_manager_v1;
++struct zwp_text_input_v1;
++
++/**
++ * @page page_iface_zwp_text_input_v1 zwp_text_input_v1
++ * @section page_iface_zwp_text_input_v1_desc Description
++ *
++ * An object used for text input. Adds support for text input and input
++ * methods to applications. A text_input object is created from a
++ * wl_text_input_manager and corresponds typically to a text entry in an
++ * application.
++ *
++ * Requests are used to activate/deactivate the text_input object and set
++ * state information like surrounding and selected text or the content type.
++ * The information about entered text is sent to the text_input object via
++ * the pre-edit and commit events. Using this interface removes the need
++ * for applications to directly process hardware key events and compose text
++ * out of them.
++ *
++ * Text is generally UTF-8 encoded, indices and lengths are in bytes.
++ *
++ * Serials are used to synchronize the state between the text input and
++ * an input method. New serials are sent by the text input in the
++ * commit_state request and are used by the input method to indicate
++ * the known text input state in events like preedit_string, commit_string,
++ * and keysym. The text input can then ignore events from the input method
++ * which are based on an outdated state (for example after a reset).
++ *
++ * Warning! The protocol described in this file is experimental and
++ * backward incompatible changes may be made. Backward compatible changes
++ * may be added together with the corresponding interface version bump.
++ * Backward incompatible changes are done by bumping the version number in
++ * the protocol and interface names and resetting the interface version.
++ * Once the protocol is to be declared stable, the 'z' prefix and the
++ * version number in the protocol and interface names are removed and the
++ * interface version number is reset.
++ * @section page_iface_zwp_text_input_v1_api API
++ * See @ref iface_zwp_text_input_v1.
++ */
++/**
++ * @defgroup iface_zwp_text_input_v1 The zwp_text_input_v1 interface
++ *
++ * An object used for text input. Adds support for text input and input
++ * methods to applications. A text_input object is created from a
++ * wl_text_input_manager and corresponds typically to a text entry in an
++ * application.
++ *
++ * Requests are used to activate/deactivate the text_input object and set
++ * state information like surrounding and selected text or the content type.
++ * The information about entered text is sent to the text_input object via
++ * the pre-edit and commit events. Using this interface removes the need
++ * for applications to directly process hardware key events and compose text
++ * out of them.
++ *
++ * Text is generally UTF-8 encoded, indices and lengths are in bytes.
++ *
++ * Serials are used to synchronize the state between the text input and
++ * an input method. New serials are sent by the text input in the
++ * commit_state request and are used by the input method to indicate
++ * the known text input state in events like preedit_string, commit_string,
++ * and keysym. The text input can then ignore events from the input method
++ * which are based on an outdated state (for example after a reset).
++ *
++ * Warning! The protocol described in this file is experimental and
++ * backward incompatible changes may be made. Backward compatible changes
++ * may be added together with the corresponding interface version bump.
++ * Backward incompatible changes are done by bumping the version number in
++ * the protocol and interface names and resetting the interface version.
++ * Once the protocol is to be declared stable, the 'z' prefix and the
++ * version number in the protocol and interface names are removed and the
++ * interface version number is reset.
++ */
++extern const struct wl_interface zwp_text_input_v1_interface;
++/**
++ * @page page_iface_zwp_text_input_manager_v1 zwp_text_input_manager_v1
++ * @section page_iface_zwp_text_input_manager_v1_desc Description
++ *
++ * A factory for text_input objects. This object is a global singleton.
++ * @section page_iface_zwp_text_input_manager_v1_api API
++ * See @ref iface_zwp_text_input_manager_v1.
++ */
++/**
++ * @defgroup iface_zwp_text_input_manager_v1 The zwp_text_input_manager_v1
++ * interface
++ *
++ * A factory for text_input objects. This object is a global singleton.
++ */
++extern const struct wl_interface zwp_text_input_manager_v1_interface;
++
++#ifndef ZWP_TEXT_INPUT_V1_CONTENT_HINT_ENUM
++#define ZWP_TEXT_INPUT_V1_CONTENT_HINT_ENUM
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * content hint
++ *
++ * Content hint is a bitmask to allow to modify the behavior of the text
++ * input.
++ */
++enum zwp_text_input_v1_content_hint {
++  /**
++   * no special behaviour
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_NONE = 0x0,
++  /**
++   * auto completion, correction and capitalization
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_DEFAULT = 0x7,
++  /**
++   * hidden and sensitive text
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_PASSWORD = 0xc0,
++  /**
++   * suggest word completions
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_AUTO_COMPLETION = 0x1,
++  /**
++   * suggest word corrections
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_AUTO_CORRECTION = 0x2,
++  /**
++   * switch to uppercase letters at the start of a sentence
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_AUTO_CAPITALIZATION = 0x4,
++  /**
++   * prefer lowercase letters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_LOWERCASE = 0x8,
++  /**
++   * prefer uppercase letters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_UPPERCASE = 0x10,
++  /**
++   * prefer casing for titles and headings (can be language dependent)
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_TITLECASE = 0x20,
++  /**
++   * characters should be hidden
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_HIDDEN_TEXT = 0x40,
++  /**
++   * typed text should not be stored
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_SENSITIVE_DATA = 0x80,
++  /**
++   * just latin characters should be entered
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_LATIN = 0x100,
++  /**
++   * the text input is multiline
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_HINT_MULTILINE = 0x200,
++};
++#endif /* ZWP_TEXT_INPUT_V1_CONTENT_HINT_ENUM */
++
++#ifndef ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ENUM
++#define ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ENUM
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * content purpose
++ *
++ * The content purpose allows to specify the primary purpose of a text
++ * input.
++ *
++ * This allows an input method to show special purpose input panels with
++ * extra characters or to disallow some characters.
++ */
++enum zwp_text_input_v1_content_purpose {
++  /**
++   * default input, allowing all characters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NORMAL = 0,
++  /**
++   * allow only alphabetic characters
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ALPHA = 1,
++  /**
++   * allow only digits
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_DIGITS = 2,
++  /**
++   * input a number (including decimal separator and sign)
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NUMBER = 3,
++  /**
++   * input a phone number
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_PHONE = 4,
++  /**
++   * input an URL
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_URL = 5,
++  /**
++   * input an email address
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_EMAIL = 6,
++  /**
++   * input a name of a person
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NAME = 7,
++  /**
++   * input a password (combine with password or sensitive_data hint)
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_PASSWORD = 8,
++  /**
++   * input a date
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_DATE = 9,
++  /**
++   * input a time
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_TIME = 10,
++  /**
++   * input a date and time
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_DATETIME = 11,
++  /**
++   * input for a terminal
++   */
++  ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_TERMINAL = 12,
++};
++#endif /* ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_ENUM */
++
++#ifndef ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ENUM
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ENUM
++enum zwp_text_input_v1_preedit_style {
++  /**
++   * default style for composing text
++   */
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_DEFAULT = 0,
++  /**
++   * style should be the same as in non-composing text
++   */
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_NONE = 1,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ACTIVE = 2,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_INACTIVE = 3,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_HIGHLIGHT = 4,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_UNDERLINE = 5,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_SELECTION = 6,
++  ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_INCORRECT = 7,
++};
++#endif /* ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ENUM */
++
++#ifndef ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_ENUM
++#define ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_ENUM
++enum zwp_text_input_v1_text_direction {
++  /**
++   * automatic text direction based on text and language
++   */
++  ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_AUTO = 0,
++  /**
++   * left-to-right
++   */
++  ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_LTR = 1,
++  /**
++   * right-to-left
++   */
++  ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_RTL = 2,
++};
++#endif /* ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_ENUM */
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * @struct zwp_text_input_v1_interface
++ */
++struct zwp_text_input_v1_interface {
++  /**
++   * request activation
++   *
++   * Requests the text_input object to be activated (typically when
++   * the text entry gets focus).
++   *
++   * The seat argument is a wl_seat which maintains the focus for
++   * this activation. The surface argument is a wl_surface assigned
++   * to the text_input object and tracked for focus lost. The enter
++   * event is emitted on successful activation.
++   */
++  void (*activate)(struct wl_client* client,
++                   struct wl_resource* resource,
++                   struct wl_resource* seat,
++                   struct wl_resource* surface);
++  /**
++   * request deactivation
++   *
++   * Requests the text_input object to be deactivated (typically
++   * when the text entry lost focus). The seat argument is a wl_seat
++   * which was used for activation.
++   */
++  void (*deactivate)(struct wl_client* client,
++                     struct wl_resource* resource,
++                     struct wl_resource* seat);
++  /**
++   * show input panels
++   *
++   * Requests input panels (virtual keyboard) to show.
++   */
++  void (*show_input_panel)(struct wl_client* client,
++                           struct wl_resource* resource);
++  /**
++   * hide input panels
++   *
++   * Requests input panels (virtual keyboard) to hide.
++   */
++  void (*hide_input_panel)(struct wl_client* client,
++                           struct wl_resource* resource);
++  /**
++   * reset
++   *
++   * Should be called by an editor widget when the input state
++   * should be reset, for example after the text was changed outside
++   * of the normal input method flow.
++   */
++  void (*reset)(struct wl_client* client, struct wl_resource* resource);
++  /**
++   * sets the surrounding text
++   *
++   * Sets the plain surrounding text around the input position.
++   * Text is UTF-8 encoded. Cursor is the byte offset within the
++   * surrounding text. Anchor is the byte offset of the selection
++   * anchor within the surrounding text. If there is no selected text
++   * anchor, then it is the same as cursor.
++   */
++  void (*set_surrounding_text)(struct wl_client* client,
++                               struct wl_resource* resource,
++                               const char* text,
++                               uint32_t cursor,
++                               uint32_t anchor);
++  /**
++   * set content purpose and hint
++   *
++   * Sets the content purpose and content hint. While the purpose
++   * is the basic purpose of an input field, the hint flags allow to
++   * modify some of the behavior.
++   *
++   * When no content type is explicitly set, a normal content purpose
++   * with default hints (auto completion, auto correction, auto
++   * capitalization) should be assumed.
++   */
++  void (*set_content_type)(struct wl_client* client,
++                           struct wl_resource* resource,
++                           uint32_t hint,
++                           uint32_t purpose);
++  /**
++   */
++  void (*set_cursor_rectangle)(struct wl_client* client,
++                               struct wl_resource* resource,
++                               int32_t x,
++                               int32_t y,
++                               int32_t width,
++                               int32_t height);
++  /**
++   * sets preferred language
++   *
++   * Sets a specific language. This allows for example a virtual
++   * keyboard to show a language specific layout. The "language"
++   * argument is an RFC-3066 format language tag.
++   *
++   * It could be used for example in a word processor to indicate the
++   * language of the currently edited document or in an instant
++   * message application which tracks languages of contacts.
++   */
++  void (*set_preferred_language)(struct wl_client* client,
++                                 struct wl_resource* resource,
++                                 const char* language);
++  /**
++   * @param serial used to identify the known state
++   */
++  void (*commit_state)(struct wl_client* client,
++                       struct wl_resource* resource,
++                       uint32_t serial);
++  /**
++   */
++  void (*invoke_action)(struct wl_client* client,
++                        struct wl_resource* resource,
++                        uint32_t button,
++                        uint32_t index);
++};
++
++#define ZWP_TEXT_INPUT_V1_ENTER 0
++#define ZWP_TEXT_INPUT_V1_LEAVE 1
++#define ZWP_TEXT_INPUT_V1_MODIFIERS_MAP 2
++#define ZWP_TEXT_INPUT_V1_INPUT_PANEL_STATE 3
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STRING 4
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STYLING 5
++#define ZWP_TEXT_INPUT_V1_PREEDIT_CURSOR 6
++#define ZWP_TEXT_INPUT_V1_COMMIT_STRING 7
++#define ZWP_TEXT_INPUT_V1_CURSOR_POSITION 8
++#define ZWP_TEXT_INPUT_V1_DELETE_SURROUNDING_TEXT 9
++#define ZWP_TEXT_INPUT_V1_KEYSYM 10
++#define ZWP_TEXT_INPUT_V1_LANGUAGE 11
++#define ZWP_TEXT_INPUT_V1_TEXT_DIRECTION 12
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_ENTER_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_LEAVE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_MODIFIERS_MAP_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_INPUT_PANEL_STATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STRING_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_PREEDIT_STYLING_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_PREEDIT_CURSOR_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_COMMIT_STRING_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_CURSOR_POSITION_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_DELETE_SURROUNDING_TEXT_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_KEYSYM_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_LANGUAGE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_SINCE_VERSION 1
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_ACTIVATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_DEACTIVATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SHOW_INPUT_PANEL_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_HIDE_INPUT_PANEL_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_RESET_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_SURROUNDING_TEXT_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_CONTENT_TYPE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_CURSOR_RECTANGLE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_SET_PREFERRED_LANGUAGE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_COMMIT_STATE_SINCE_VERSION 1
++/**
++ * @ingroup iface_zwp_text_input_v1
++ */
++#define ZWP_TEXT_INPUT_V1_INVOKE_ACTION_SINCE_VERSION 1
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an enter event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_enter(struct wl_resource* resource_,
++                                                struct wl_resource* surface) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_ENTER, surface);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an leave event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_leave(struct wl_resource* resource_) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_LEAVE);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an modifiers_map event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_modifiers_map(
++    struct wl_resource* resource_,
++    struct wl_array* map) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_MODIFIERS_MAP, map);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an input_panel_state event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_input_panel_state(
++    struct wl_resource* resource_,
++    uint32_t state) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_INPUT_PANEL_STATE, state);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an preedit_string event to the client owning the resource.
++ * @param resource_ The client's resource
++ * @param serial serial of the latest known text input state
++ */
++static inline void zwp_text_input_v1_send_preedit_string(
++    struct wl_resource* resource_,
++    uint32_t serial,
++    const char* text,
++    const char* commit) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_PREEDIT_STRING, serial,
++                         text, commit);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an preedit_styling event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_preedit_styling(
++    struct wl_resource* resource_,
++    uint32_t index,
++    uint32_t length,
++    uint32_t style) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_PREEDIT_STYLING, index,
++                         length, style);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an preedit_cursor event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_preedit_cursor(
++    struct wl_resource* resource_,
++    int32_t index) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_PREEDIT_CURSOR, index);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an commit_string event to the client owning the resource.
++ * @param resource_ The client's resource
++ * @param serial serial of the latest known text input state
++ */
++static inline void zwp_text_input_v1_send_commit_string(
++    struct wl_resource* resource_,
++    uint32_t serial,
++    const char* text) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_COMMIT_STRING, serial,
++                         text);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an cursor_position event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_cursor_position(
++    struct wl_resource* resource_,
++    int32_t index,
++    int32_t anchor) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_CURSOR_POSITION, index,
++                         anchor);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an delete_surrounding_text event to the client owning the resource.
++ * @param resource_ The client's resource
++ */
++static inline void zwp_text_input_v1_send_delete_surrounding_text(
++    struct wl_resource* resource_,
++    int32_t index,
++    uint32_t length) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_DELETE_SURROUNDING_TEXT,
++                         index, length);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an keysym event to the client owning the resource.
++ * @param resource_ The client's resource
++ * @param serial serial of the latest known text input state
++ */
++static inline void zwp_text_input_v1_send_keysym(struct wl_resource* resource_,
++                                                 uint32_t serial,
++                                                 uint32_t time,
++                                                 uint32_t sym,
++                                                 uint32_t state,
++                                                 uint32_t modifiers) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_KEYSYM, serial, time, sym,
++                         state, modifiers);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an language event to the client owning the resource.
++ * @param resource_ The client's resource
++ * @param serial serial of the latest known text input state
++ */
++static inline void zwp_text_input_v1_send_language(
++    struct wl_resource* resource_,
++    uint32_t serial,
++    const char* language) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_LANGUAGE, serial,
++                         language);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_v1
++ * Sends an text_direction event to the client owning the resource.
++ * @param resource_ The client's resource
++ * @param serial serial of the latest known text input state
++ */
++static inline void zwp_text_input_v1_send_text_direction(
++    struct wl_resource* resource_,
++    uint32_t serial,
++    uint32_t direction) {
++  wl_resource_post_event(resource_, ZWP_TEXT_INPUT_V1_TEXT_DIRECTION, serial,
++                         direction);
++}
++
++/**
++ * @ingroup iface_zwp_text_input_manager_v1
++ * @struct zwp_text_input_manager_v1_interface
++ */
++struct zwp_text_input_manager_v1_interface {
++  /**
++   * create text input
++   *
++   * Creates a new text_input object.
++   */
++  void (*create_text_input)(struct wl_client* client,
++                            struct wl_resource* resource,
++                            uint32_t id);
++};
++
++/**
++ * @ingroup iface_zwp_text_input_manager_v1
++ */
++#define ZWP_TEXT_INPUT_MANAGER_V1_CREATE_TEXT_INPUT_SINCE_VERSION 1
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/third_party/wayland-protocols/protocol/text-input-protocol-v1.c b/third_party/wayland-protocols/protocol/text-input-protocol-v1.c
+new file mode 100644
+index 000000000000..e52306952479
+--- /dev/null
++++ b/third_party/wayland-protocols/protocol/text-input-protocol-v1.c
+@@ -0,0 +1,92 @@
++/* Generated by wayland-scanner 1.12.0 */
++
++/*
++ * Copyright © 2012, 2013 Intel Corporation
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ */
++
++#include <stdlib.h>
++#include <stdint.h>
++#include "wayland-util.h"
++
++extern const struct wl_interface wl_seat_interface;
++extern const struct wl_interface wl_surface_interface;
++extern const struct wl_interface zwp_text_input_v1_interface;
++
++static const struct wl_interface *types[] = {
++	NULL,
++	NULL,
++	NULL,
++	NULL,
++	NULL,
++	&wl_seat_interface,
++	&wl_surface_interface,
++	&wl_seat_interface,
++	&wl_surface_interface,
++	&zwp_text_input_v1_interface,
++};
++
++static const struct wl_message zwp_text_input_v1_requests[] = {
++	{ "activate", "oo", types + 5 },
++	{ "deactivate", "o", types + 7 },
++	{ "show_input_panel", "", types + 0 },
++	{ "hide_input_panel", "", types + 0 },
++	{ "reset", "", types + 0 },
++	{ "set_surrounding_text", "suu", types + 0 },
++	{ "set_content_type", "uu", types + 0 },
++	{ "set_cursor_rectangle", "iiii", types + 0 },
++	{ "set_preferred_language", "s", types + 0 },
++	{ "commit_state", "u", types + 0 },
++	{ "invoke_action", "uu", types + 0 },
++};
++
++static const struct wl_message zwp_text_input_v1_events[] = {
++	{ "enter", "o", types + 8 },
++	{ "leave", "", types + 0 },
++	{ "modifiers_map", "a", types + 0 },
++	{ "input_panel_state", "u", types + 0 },
++	{ "preedit_string", "uss", types + 0 },
++	{ "preedit_styling", "uuu", types + 0 },
++	{ "preedit_cursor", "i", types + 0 },
++	{ "commit_string", "us", types + 0 },
++	{ "cursor_position", "ii", types + 0 },
++	{ "delete_surrounding_text", "iu", types + 0 },
++	{ "keysym", "uuuuu", types + 0 },
++	{ "language", "us", types + 0 },
++	{ "text_direction", "uu", types + 0 },
++};
++
++WL_EXPORT const struct wl_interface zwp_text_input_v1_interface = {
++	"zwp_text_input_v1", 1,
++	11, zwp_text_input_v1_requests,
++	13, zwp_text_input_v1_events,
++};
++
++static const struct wl_message zwp_text_input_manager_v1_requests[] = {
++	{ "create_text_input", "n", types + 9 },
++};
++
++WL_EXPORT const struct wl_interface zwp_text_input_manager_v1_interface = {
++	"zwp_text_input_manager_v1", 1,
++	1, zwp_text_input_manager_v1_requests,
++	0, NULL,
++};
++
+diff --git a/ui/aura/BUILD.gn b/ui/aura/BUILD.gn
+index a9223224151e..1cdd7196eb5f 100644
+--- a/ui/aura/BUILD.gn
++++ b/ui/aura/BUILD.gn
+@@ -112,6 +112,12 @@ jumbo_component("aura") {
+     "mus/focus_synchronizer.cc",
+     "mus/in_flight_change.cc",
+     "mus/input_method_mus.cc",
++    "mus/linux_input_method_context_delegate_impl.cc",
++    "mus/linux_input_method_context_delegate_impl.h",
++    "mus/linux_input_method_context_factory_mus.cc",
++    "mus/linux_input_method_context_factory_mus.h",
++    "mus/linux_input_method_context_mus.cc",
++    "mus/linux_input_method_context_mus.h",
+     "mus/mus_context_factory.cc",
+     "mus/mus_mouse_location_updater.cc",
+     "mus/os_exchange_data_provider_mus.cc",
+diff --git a/ui/aura/mus/input_method_mus.cc b/ui/aura/mus/input_method_mus.cc
+index bfd2555a8289..b67d8128d244 100644
+--- a/ui/aura/mus/input_method_mus.cc
++++ b/ui/aura/mus/input_method_mus.cc
+@@ -187,6 +187,7 @@ void InputMethodMus::UpdateTextInputType() {
+   ui::TextInputType type = GetTextInputType();
+   ui::mojom::TextInputStatePtr state = ui::mojom::TextInputState::New();
+   state->type = mojo::ConvertTo<ui::mojom::TextInputType>(type);
++
+   if (window_) {
+     WindowPortMus* window_impl_mus = WindowPortMus::Get(window_);
+     if (type != ui::TEXT_INPUT_TYPE_NONE)
+diff --git a/ui/aura/mus/linux_input_method_context_delegate_impl.cc b/ui/aura/mus/linux_input_method_context_delegate_impl.cc
+new file mode 100644
+index 000000000000..70f176d40538
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_delegate_impl.cc
+@@ -0,0 +1,48 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/aura/mus/linux_input_method_context_delegate_impl.h"
++
++#include "ui/base/ime/linux/linux_input_method_context.h"
++
++namespace aura {
++
++////////////////////////////////////////////////////////////////////////////////
++// InputMethodMusOzone, public:
++
++LinuxInputMethodContextDelegateImpl::LinuxInputMethodContextDelegateImpl(
++    ui::LinuxInputMethodContextDelegate* delegate)
++    : delegate_(delegate), binding_(this) {}
++
++LinuxInputMethodContextDelegateImpl::~LinuxInputMethodContextDelegateImpl() {}
++
++ui::mojom::LinuxInputMethodContextDelegatePtr
++LinuxInputMethodContextDelegateImpl::CreateInterfacePtrAndBind() {
++  ui::mojom::LinuxInputMethodContextDelegatePtr ptr;
++  binding_.Bind(mojo::MakeRequest(&ptr));
++  return ptr;
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// LinuxInputMethodContextMus, ui::mojom::LinuxInputMethodContextDelegate
++// implementation:
++
++void LinuxInputMethodContextDelegateImpl::OnCommit(const base::string16& text) {
++  delegate_->OnCommit(text);
++}
++
++void LinuxInputMethodContextDelegateImpl::OnPreeditChanged(
++    const ui::CompositionText& composition_text) {
++  delegate_->OnPreeditChanged(composition_text);
++}
++
++void LinuxInputMethodContextDelegateImpl::OnPreeditEnd() {
++  delegate_->OnPreeditEnd();
++}
++
++void LinuxInputMethodContextDelegateImpl::OnPreeditStart() {
++  delegate_->OnPreeditStart();
++}
++
++}  // namespace aura
+diff --git a/ui/aura/mus/linux_input_method_context_delegate_impl.h b/ui/aura/mus/linux_input_method_context_delegate_impl.h
+new file mode 100644
+index 000000000000..e4ea9dfcbd6f
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_delegate_impl.h
+@@ -0,0 +1,46 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_MUS_LINUX_INPUT_METHOD_DELEGATE_MUS_H_
++#define UI_AURA_MUS_LINUX_INPUT_METHOD_DELEGATE_MUS_H_
++
++#include "base/macros.h"
++#include "mojo/public/cpp/bindings/binding.h"
++#include "services/ui/public/interfaces/ime/linux_input_method_context.mojom.h"
++#include "ui/aura/aura_export.h"
++
++namespace ui {
++class LinuxInputMethodContextDelegate;
++}
++
++namespace aura {
++
++class AURA_EXPORT LinuxInputMethodContextDelegateImpl
++    : public ui::mojom::LinuxInputMethodContextDelegate {
++ public:
++  LinuxInputMethodContextDelegateImpl(
++      ui::LinuxInputMethodContextDelegate* delegate);
++  ~LinuxInputMethodContextDelegateImpl() override;
++
++  ui::mojom::LinuxInputMethodContextDelegatePtr CreateInterfacePtrAndBind();
++
++  // Overridden from ui::LinuxInputMethodContextDelegate:
++  void OnCommit(const base::string16& text) override;
++  void OnPreeditChanged(const ui::CompositionText& composition_text) override;
++  void OnPreeditEnd() override;
++  void OnPreeditStart() override;
++
++ private:
++  // A set of callback functions.  Must not be nullptr.
++  ui::LinuxInputMethodContextDelegate* delegate_;
++
++  // Binds this object to the mojo interface.
++  mojo::Binding<ui::mojom::LinuxInputMethodContextDelegate> binding_;
++
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextDelegateImpl);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_MUS_LINUX_INPUT_METHOD_DELEGATE_MUS_H_
+diff --git a/ui/aura/mus/linux_input_method_context_factory_mus.cc b/ui/aura/mus/linux_input_method_context_factory_mus.cc
+new file mode 100644
+index 000000000000..4e14806219d1
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_factory_mus.cc
+@@ -0,0 +1,31 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/aura/mus/linux_input_method_context_factory_mus.h"
++
++#include "services/service_manager/public/cpp/connector.h"
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++
++namespace aura {
++
++////////////////////////////////////////////////////////////////////////////////
++// LinuxInputMethodContextFactoryMus, public:
++
++LinuxInputMethodContextFactoryMus::LinuxInputMethodContextFactoryMus(
++    service_manager::Connector* connector)
++    : connector_(connector) {}
++
++LinuxInputMethodContextFactoryMus::~LinuxInputMethodContextFactoryMus() {}
++
++std::unique_ptr<ui::LinuxInputMethodContext>
++LinuxInputMethodContextFactoryMus::CreateInputMethodContext(
++    ui::LinuxInputMethodContextDelegate* delegate,
++    bool is_simple) const {
++  auto context =
++      base::MakeUnique<aura::LinuxInputMethodContextMus>(delegate, is_simple);
++  context->Init(connector_);
++  return std::move(context);
++}
++
++}  // namespace aura
+diff --git a/ui/aura/mus/linux_input_method_context_factory_mus.h b/ui/aura/mus/linux_input_method_context_factory_mus.h
+new file mode 100644
+index 000000000000..642f1636996e
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_factory_mus.h
+@@ -0,0 +1,36 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_FACTORY_MUS_H_
++#define UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_FACTORY_MUS_H_US_H_
++
++#include "base/macros.h"
++#include "ui/aura/aura_export.h"
++#include "ui/base/ime/linux/linux_input_method_context_factory.h"
++
++namespace service_manager {
++class Connector;
++}
++
++namespace aura {
++
++class AURA_EXPORT LinuxInputMethodContextFactoryMus
++    : public ui::LinuxInputMethodContextFactory {
++ public:
++  LinuxInputMethodContextFactoryMus(service_manager::Connector* connector);
++  ~LinuxInputMethodContextFactoryMus() override;
++
++  std::unique_ptr<ui::LinuxInputMethodContext> CreateInputMethodContext(
++      ui::LinuxInputMethodContextDelegate* delegate,
++      bool is_simple) const override;
++
++ private:
++  service_manager::Connector* connector_;
++
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextFactoryMus);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_FACTORY_MUS_H_
+diff --git a/ui/aura/mus/linux_input_method_context_mus.cc b/ui/aura/mus/linux_input_method_context_mus.cc
+new file mode 100644
+index 000000000000..881247d86c1c
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_mus.cc
+@@ -0,0 +1,57 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++
++#include "services/ui/public/interfaces/constants.mojom.h"
++#include "ui/aura/mus/linux_input_method_context_delegate_impl.h"
++#include "ui/base/ime/text_input_client.h"
++
++#include "base/message_loop/message_loop.h"
++
++namespace aura {
++
++////////////////////////////////////////////////////////////////////////////////
++// InputMethodMusOzone, public:
++
++LinuxInputMethodContextMus::LinuxInputMethodContextMus(
++    ui::LinuxInputMethodContextDelegate* delegate,
++    bool is_simple)
++    : delegate_(
++          std::make_unique<LinuxInputMethodContextDelegateImpl>(delegate)),
++      is_simple_(is_simple) {}
++
++LinuxInputMethodContextMus::~LinuxInputMethodContextMus() {}
++
++void LinuxInputMethodContextMus::Init(service_manager::Connector* connector) {
++  if (connector)
++    connector->BindInterface(ui::mojom::kServiceName, &context_ptr_);
++  context_ptr_->Initialize(delegate_->CreateInterfacePtrAndBind(), is_simple_);
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// LinuxInputMethodContextMus, ui::LinuxInputMethodContext implementation:
++
++bool LinuxInputMethodContextMus::DispatchKeyEvent(
++    const ui::KeyEvent& key_event) {
++  return false;
++}
++
++void LinuxInputMethodContextMus::SetCursorLocation(const gfx::Rect& rect) {
++  context_ptr_->SetCursorLocation(rect);
++}
++
++void LinuxInputMethodContextMus::Reset() {
++  context_ptr_->Reset();
++}
++
++void LinuxInputMethodContextMus::Focus() {
++  context_ptr_->Focus();
++}
++
++void LinuxInputMethodContextMus::Blur() {
++  context_ptr_->Blur();
++}
++
++}  // namespace aura
+diff --git a/ui/aura/mus/linux_input_method_context_mus.h b/ui/aura/mus/linux_input_method_context_mus.h
+new file mode 100644
+index 000000000000..c84c00340fa9
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_mus.h
+@@ -0,0 +1,48 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_H_
++#define UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_H_
++
++#include "base/macros.h"
++#include "mojo/public/cpp/bindings/binding.h"
++#include "services/service_manager/public/cpp/connector.h"
++#include "services/ui/public/interfaces/ime/linux_input_method_context.mojom.h"
++#include "ui/aura/aura_export.h"
++#include "ui/base/ime/linux/linux_input_method_context.h"
++
++namespace aura {
++
++class LinuxInputMethodContextDelegateImpl;
++
++class AURA_EXPORT LinuxInputMethodContextMus
++    : public ui::LinuxInputMethodContext {
++ public:
++  LinuxInputMethodContextMus(ui::LinuxInputMethodContextDelegate* delegate,
++                             bool is_simple);
++  ~LinuxInputMethodContextMus() override;
++
++  void Init(service_manager::Connector* connector);
++
++  // Overridden from ui::LinuxInputMethodContext:
++  bool DispatchKeyEvent(const ui::KeyEvent& key_event) override;
++  void SetCursorLocation(const gfx::Rect& rect) override;
++  void Reset() override;
++  void Focus() override;
++  void Blur() override;
++
++ private:
++  // A set of callback functions.  Must not be nullptr.
++  std::unique_ptr<LinuxInputMethodContextDelegateImpl> delegate_;
++  bool is_simple_;
++
++  // LinuxInputMethodContext interface.
++  ui::mojom::LinuxInputMethodContextPtr context_ptr_;
++
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextMus);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_H_
+diff --git a/ui/ozone/platform/wayland/BUILD.gn b/ui/ozone/platform/wayland/BUILD.gn
+index a2102607496c..a6ae7de85467 100644
+--- a/ui/ozone/platform/wayland/BUILD.gn
++++ b/ui/ozone/platform/wayland/BUILD.gn
+@@ -22,6 +22,8 @@ source_set("wayland") {
+     "wayland_connection.h",
+     "wayland_cursor.cc",
+     "wayland_cursor.h",
++    "wayland_input_method_context.cc",
++    "wayland_input_method_context.h",
+     "wayland_keyboard.cc",
+     "wayland_keyboard.h",
+     "wayland_object.cc",
+@@ -47,6 +49,9 @@ source_set("wayland") {
+     "xdg_surface_wrapper_v5.h",
+     "xdg_surface_wrapper_v6.cc",
+     "xdg_surface_wrapper_v6.h",
++    "zwp_text_input_wrapper.h",
++    "zwp_text_input_wrapper_v1.cc",
++    "zwp_text_input_wrapper_v1.h",
+   ]
+ 
+   import("//ui/base/ui_features.gni")
+@@ -60,14 +65,17 @@ source_set("wayland") {
+ 
+   deps = [
+     "//base",
++    "//services/ui/public/interfaces/ime",
+     "//skia",
+     "//third_party/wayland:wayland_client",
++    "//third_party/wayland-protocols:text_input_protocol",
+     "//third_party/wayland-protocols:xdg_shell_protocol",
+     "//ui/base",
+     "//ui/base:ui_features",
+     "//ui/display/manager",
+     "//ui/events",
+     "//ui/events:dom_keycode_converter",
++    "//ui/events/keycodes:xkb",
+     "//ui/events/ozone:events_ozone_layout",
+     "//ui/events/platform",
+     "//ui/gfx",
+@@ -94,6 +102,7 @@ source_set("wayland_unittests") {
+     "mock_platform_window_delegate.cc",
+     "mock_platform_window_delegate.h",
+     "wayland_connection_unittest.cc",
++    "wayland_input_method_context_unittests.cc",
+     "wayland_keyboard_unittest.cc",
+     "wayland_pointer_unittest.cc",
+     "wayland_surface_factory_unittest.cc",
+diff --git a/ui/ozone/platform/wayland/fake_server.cc b/ui/ozone/platform/wayland/fake_server.cc
+index cfcf78536a1f..4d8e2844aec6 100644
+--- a/ui/ozone/platform/wayland/fake_server.cc
++++ b/ui/ozone/platform/wayland/fake_server.cc
+@@ -5,6 +5,7 @@
+ #include "ui/ozone/platform/wayland/fake_server.h"
+ 
+ #include <sys/socket.h>
++#include <text-input-unstable-v1-server-protocol.h>
+ #include <wayland-server.h>
+ #include <xdg-shell-unstable-v5-server-protocol.h>
+ #include <xdg-shell-unstable-v6-server-protocol.h>
+@@ -22,6 +23,7 @@ const uint32_t kCompositorVersion = 4;
+ const uint32_t kOutputVersion = 2;
+ const uint32_t kSeatVersion = 4;
+ const uint32_t kXdgShellVersion = 1;
++const uint32_t kTextInputManagerVersion = 1;
+ 
+ void DestroyResource(wl_client* client, wl_resource* resource) {
+   wl_resource_destroy(resource);
+@@ -189,6 +191,84 @@ const struct wl_touch_interface touch_impl = {
+     &DestroyResource,  // release
+ };
+ 
++// zwp_text_input_v1
++
++void TextInputV1Activate(wl_client* client,
++                         wl_resource* resource,
++                         wl_resource* seat,
++                         wl_resource* surface) {
++  static_cast<MockZwpTextInput*>(wl_resource_get_user_data(resource))
++      ->Activate(surface);
++}
++
++void TextInputV1Deactivate(wl_client* client,
++                           wl_resource* resource,
++                           wl_resource* seat) {
++  static_cast<MockZwpTextInput*>(wl_resource_get_user_data(resource))
++      ->Deactivate();
++}
++
++void TextInputV1ShowInputPanel(wl_client* client, wl_resource* resource) {
++  static_cast<MockZwpTextInput*>(wl_resource_get_user_data(resource))
++      ->ShowInputPanel();
++}
++
++void TextInputV1HideInputPanel(wl_client* client, wl_resource* resource) {
++  static_cast<MockZwpTextInput*>(wl_resource_get_user_data(resource))
++      ->HideInputPanel();
++}
++
++void TextInputV1Reset(wl_client* client, wl_resource* resource) {
++  static_cast<MockZwpTextInput*>(wl_resource_get_user_data(resource))->Reset();
++}
++
++void TextInputV1SetCursorRectangle(wl_client* client,
++                                   wl_resource* resource,
++                                   int32_t x,
++                                   int32_t y,
++                                   int32_t width,
++                                   int32_t height) {
++  static_cast<MockZwpTextInput*>(wl_resource_get_user_data(resource))
++      ->SetCursorRect(x, y, width, height);
++}
++
++const struct zwp_text_input_v1_interface zwp_text_input_v1_impl = {
++    &TextInputV1Activate,            // activate
++    &TextInputV1Deactivate,          // deactivate
++    &TextInputV1ShowInputPanel,      // show_input_panel
++    &TextInputV1HideInputPanel,      // hide_input_panel
++    &TextInputV1Reset,               // reset
++    nullptr,                         // set_surrounding_text
++    nullptr,                         // set_content_type
++    &TextInputV1SetCursorRectangle,  // set_cursor_rectangle
++    nullptr,                         // set_preferred_language
++    nullptr,                         // commit_state
++    nullptr,                         // invoke_action
++};
++
++// zwp_text_input_manager_v1
++
++void CreateTextInput(struct wl_client* client,
++                     struct wl_resource* resource,
++                     uint32_t id) {
++  auto* im =
++      static_cast<MockTextInputManagerV1*>(wl_resource_get_user_data(resource));
++  wl_resource* text_resource =
++      wl_resource_create(client, &zwp_text_input_v1_interface,
++                         wl_resource_get_version(resource), id);
++  if (!text_resource) {
++    wl_client_post_no_memory(client);
++    return;
++  }
++  im->text_input.reset(
++      new MockZwpTextInput(text_resource, &zwp_text_input_v1_impl));
++}
++
++const struct zwp_text_input_manager_v1_interface
++    zwp_text_input_manager_v1_impl = {
++        &CreateTextInput,  // create_text_input
++};
++
+ // xdg_surface, zxdg_surface_v6 and zxdg_toplevel shared methods.
+ 
+ void SetTitle(wl_client* client, wl_resource* resource, const char* title) {
+@@ -419,6 +499,15 @@ MockTouch::MockTouch(wl_resource* resource) : ServerObject(resource) {
+ 
+ MockTouch::~MockTouch() {}
+ 
++MockZwpTextInput::MockZwpTextInput(wl_resource* resource,
++                                   const void* implementation)
++    : ServerObject(resource) {
++  wl_resource_set_implementation(resource, implementation, this,
++                                 &ServerObject::OnResourceDestroyed);
++}
++
++MockZwpTextInput::~MockZwpTextInput() {}
++
+ void GlobalDeleter::operator()(wl_global* global) {
+   wl_global_destroy(global);
+ }
+@@ -502,6 +591,13 @@ MockXdgShellV6::MockXdgShellV6()
+ 
+ MockXdgShellV6::~MockXdgShellV6() {}
+ 
++MockTextInputManagerV1::MockTextInputManagerV1()
++    : Global(&zwp_text_input_manager_v1_interface,
++             &zwp_text_input_manager_v1_impl,
++             kTextInputManagerVersion) {}
++
++MockTextInputManagerV1::~MockTextInputManagerV1() {}
++
+ void DisplayDeleter::operator()(wl_display* display) {
+   wl_display_destroy(display);
+ }
+@@ -546,6 +642,8 @@ bool FakeServer::Start(uint32_t shell_version) {
+     if (!zxdg_shell_v6_.Initialize(display_.get()))
+       return false;
+   }
++  if (!zwp_text_input_manager_v1_.Initialize(display_.get()))
++    return false;
+ 
+   client_ = wl_client_create(display_.get(), server_fd.get());
+   if (!client_)
+diff --git a/ui/ozone/platform/wayland/fake_server.h b/ui/ozone/platform/wayland/fake_server.h
+index 5287c68597c7..4e72a38b396e 100644
+--- a/ui/ozone/platform/wayland/fake_server.h
++++ b/ui/ozone/platform/wayland/fake_server.h
+@@ -128,6 +128,24 @@ class MockTouch : public ServerObject {
+   DISALLOW_COPY_AND_ASSIGN(MockTouch);
+ };
+ 
++// Manage zwp_text_input_v1.
++class MockZwpTextInput : public ServerObject {
++ public:
++  MockZwpTextInput(wl_resource* resource, const void* implementation);
++  ~MockZwpTextInput() override;
++
++  MOCK_METHOD0(Reset, void());
++  MOCK_METHOD1(Activate, void(wl_resource* window));
++  MOCK_METHOD0(Deactivate, void());
++  MOCK_METHOD0(ShowInputPanel, void());
++  MOCK_METHOD0(HideInputPanel, void());
++  MOCK_METHOD4(SetCursorRect,
++               void(int32_t x, int32_t y, int32_t width, int32_t height));
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(MockZwpTextInput);
++};
++
+ struct GlobalDeleter {
+   void operator()(wl_global* global);
+ };
+@@ -236,6 +254,18 @@ class MockXdgShellV6 : public Global {
+   DISALLOW_COPY_AND_ASSIGN(MockXdgShellV6);
+ };
+ 
++// Manage zwp_text_input_manager_v1 object.
++class MockTextInputManagerV1 : public Global {
++ public:
++  MockTextInputManagerV1();
++  ~MockTextInputManagerV1() override;
++
++  std::unique_ptr<MockZwpTextInput> text_input;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(MockTextInputManagerV1);
++};
++
+ struct DisplayDeleter {
+   void operator()(wl_display* display);
+ };
+@@ -268,6 +298,9 @@ class FakeServer : public base::Thread, base::MessagePumpLibevent::Watcher {
+   MockSeat* seat() { return &seat_; }
+   MockXdgShell* xdg_shell() { return &xdg_shell_; }
+   MockOutput* output() { return &output_; }
++  MockTextInputManagerV1* text_input_manager_v1() {
++    return &zwp_text_input_manager_v1_;
++  }
+ 
+  private:
+   void DoPause();
+@@ -291,6 +324,7 @@ class FakeServer : public base::Thread, base::MessagePumpLibevent::Watcher {
+   MockSeat seat_;
+   MockXdgShell xdg_shell_;
+   MockXdgShellV6 zxdg_shell_v6_;
++  MockTextInputManagerV1 zwp_text_input_manager_v1_;
+ 
+   base::MessagePumpLibevent::FileDescriptorWatcher controller_;
+ 
+diff --git a/ui/ozone/platform/wayland/ozone_platform_wayland.cc b/ui/ozone/platform/wayland/ozone_platform_wayland.cc
+index 5de79827a760..27557f58c727 100644
+--- a/ui/ozone/platform/wayland/ozone_platform_wayland.cc
++++ b/ui/ozone/platform/wayland/ozone_platform_wayland.cc
+@@ -5,6 +5,7 @@
+ #include "ui/ozone/platform/wayland/ozone_platform_wayland.h"
+ 
+ #include "base/memory/ptr_util.h"
++#include "mojo/public/cpp/bindings/strong_binding.h"
+ #include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
+ #include "ui/base/ui_features.h"
+ #include "ui/display/manager/fake_display_delegate.h"
+@@ -12,6 +13,7 @@
+ #include "ui/events/system_input_injector.h"
+ #include "ui/ozone/common/stub_overlay_manager.h"
+ #include "ui/ozone/platform/wayland/wayland_connection.h"
++#include "ui/ozone/platform/wayland/wayland_input_method_context.h"
+ #include "ui/ozone/platform/wayland/wayland_surface_factory.h"
+ #include "ui/ozone/platform/wayland/wayland_window.h"
+ #include "ui/ozone/public/gpu_platform_support_host.h"
+@@ -123,6 +125,22 @@ class OzonePlatformWayland : public OzonePlatform {
+     }
+   }
+ 
++  void AddInterfaces(
++      service_manager::BinderRegistryWithArgs<
++          const service_manager::BindSourceInfo&>* registry) override {
++    registry->AddInterface<ui::mojom::LinuxInputMethodContext>(
++        base::Bind(&OzonePlatformWayland::CreateInputMethodContext,
++                   base::Unretained(this)));
++  }
++
++  void CreateInputMethodContext(
++      ui::mojom::LinuxInputMethodContextRequest request,
++      const service_manager::BindSourceInfo& source_info) {
++    mojo::MakeStrongBinding(
++        std::make_unique<WaylandInputMethodContext>(connection_.get()),
++        std::move(request));
++  }
++
+  private:
+   std::unique_ptr<WaylandConnection> connection_;
+   std::unique_ptr<WaylandSurfaceFactory> surface_factory_;
+diff --git a/ui/ozone/platform/wayland/wayland_connection.cc b/ui/ozone/platform/wayland/wayland_connection.cc
+index 9fce25fa3644..b1895dc26b46 100644
+--- a/ui/ozone/platform/wayland/wayland_connection.cc
++++ b/ui/ozone/platform/wayland/wayland_connection.cc
+@@ -24,6 +24,7 @@ const uint32_t kMaxCompositorVersion = 4;
+ const uint32_t kMaxSeatVersion = 4;
+ const uint32_t kMaxShmVersion = 1;
+ const uint32_t kMaxXdgShellVersion = 1;
++const uint32_t kMaxTextInputManagerVersion = 1;
+ }  // namespace
+ 
+ WaylandConnection::WaylandConnection() : controller_(FROM_HERE) {}
+@@ -114,6 +115,15 @@ WaylandWindow* WaylandConnection::GetCurrentFocusedWindow() {
+   return nullptr;
+ }
+ 
++WaylandWindow* WaylandConnection::GetCurrentKeyboardFocusedWindow() {
++  for (auto entry : window_map_) {
++    WaylandWindow* window = entry.second;
++    if (window->has_keyboard_focus())
++      return window;
++  }
++  return nullptr;
++}
++
+ void WaylandConnection::AddWindow(gfx::AcceleratedWidget widget,
+                                   WaylandWindow* window) {
+   window_map_[widget] = window;
+@@ -249,6 +259,14 @@ void WaylandConnection::Global(void* data,
+ 
+     connection->output_list_.push_back(
+         base::WrapUnique(new WaylandOutput(output.release())));
++  } else if (!connection->text_input_manager_v1_ &&
++             strcmp(interface, "zwp_text_input_manager_v1") == 0) {
++    connection->text_input_manager_v1_ = wl::Bind<zwp_text_input_manager_v1>(
++        registry, name, std::min(version, kMaxTextInputManagerVersion));
++    if (!connection->text_input_manager_v1_) {
++      LOG(ERROR) << "Failed to bind to zwp_text_input_manager_v1 global";
++      return;
++    }
+   }
+ 
+   connection->ScheduleFlush();
+diff --git a/ui/ozone/platform/wayland/wayland_connection.h b/ui/ozone/platform/wayland/wayland_connection.h
+index 69b36ffd01c3..8900c78382e4 100644
+--- a/ui/ozone/platform/wayland/wayland_connection.h
++++ b/ui/ozone/platform/wayland/wayland_connection.h
+@@ -39,9 +39,13 @@ class WaylandConnection : public PlatformEventSource,
+   xdg_shell* shell() { return shell_.get(); }
+   zxdg_shell_v6* shell_v6() { return shell_v6_.get(); }
+   wl_seat* seat() { return seat_.get(); }
++  zwp_text_input_manager_v1* text_input_manager_v1() {
++    return text_input_manager_v1_.get();
++  }
+ 
+   WaylandWindow* GetWindow(gfx::AcceleratedWidget widget);
+   WaylandWindow* GetCurrentFocusedWindow();
++  WaylandWindow* GetCurrentKeyboardFocusedWindow();
+   void AddWindow(gfx::AcceleratedWidget widget, WaylandWindow* window);
+   void RemoveWindow(gfx::AcceleratedWidget widget);
+ 
+@@ -55,6 +59,7 @@ class WaylandConnection : public PlatformEventSource,
+                        const gfx::Point& location);
+ 
+   int GetKeyboardModifiers();
++  void DispatchUiEvent(Event* event);
+ 
+   // Resets flags and keyboard modifiers.
+   //
+@@ -65,7 +70,6 @@ class WaylandConnection : public PlatformEventSource,
+ 
+  private:
+   void Flush();
+-  void DispatchUiEvent(Event* event);
+ 
+   // PlatformEventSource
+   void OnDispatcherListChanged() override;
+@@ -102,6 +106,7 @@ class WaylandConnection : public PlatformEventSource,
+   wl::Object<wl_shm> shm_;
+   wl::Object<xdg_shell> shell_;
+   wl::Object<zxdg_shell_v6> shell_v6_;
++  wl::Object<zwp_text_input_manager_v1> text_input_manager_v1_;
+ 
+   std::unique_ptr<WaylandPointer> pointer_;
+   std::unique_ptr<WaylandKeyboard> keyboard_;
+diff --git a/ui/ozone/platform/wayland/wayland_input_method_context.cc b/ui/ozone/platform/wayland/wayland_input_method_context.cc
+new file mode 100644
+index 000000000000..2fe8362f590c
+--- /dev/null
++++ b/ui/ozone/platform/wayland/wayland_input_method_context.cc
+@@ -0,0 +1,126 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/ozone/platform/wayland/wayland_input_method_context.h"
++
++#include "base/bind.h"
++#include "base/command_line.h"
++#include "base/memory/ptr_util.h"
++#include "base/strings/string_util.h"
++#include "base/strings/utf_string_conversions.h"
++#include "ui/events/base_event_utils.h"
++#include "ui/events/event.h"
++#include "ui/events/keycodes/dom/dom_code.h"
++#include "ui/events/keycodes/dom/keycode_converter.h"
++#include "ui/events/keycodes/keyboard_code_conversion.h"
++#include "ui/events/keycodes/keyboard_code_conversion_xkb.h"
++#include "ui/events/ozone/layout/keyboard_layout_engine.h"
++#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
++#include "ui/ozone/platform/wayland/wayland_connection.h"
++#include "ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h"
++#include "ui/ozone/public/ozone_switches.h"
++
++namespace ui {
++
++const int kXkbKeycodeOffset = 8;
++
++WaylandInputMethodContext::WaylandInputMethodContext(
++    WaylandConnection* connection)
++    : connection_(connection), text_input_(nullptr) {
++  use_ozone_wayland_vkb_ = getenv("ENABLE_WAYLAND_IME") ||
++                           base::CommandLine::ForCurrentProcess()->HasSwitch(
++                               switches::kEnableWaylandIme);
++}
++
++WaylandInputMethodContext::~WaylandInputMethodContext() {
++  if (text_input_) {
++    text_input_->Deactivate();
++    text_input_->HideInputPanel();
++  }
++}
++
++void WaylandInputMethodContext::Initialize(
++    ui::mojom::LinuxInputMethodContextDelegatePtr delegate,
++    bool is_simple) {
++  delegate_ = std::move(delegate);
++  if (use_ozone_wayland_vkb_ && !is_simple &&
++      connection_->text_input_manager_v1()) {
++    text_input_ = std::make_unique<ZWPTextInputWrapperV1>(
++        connection_->text_input_manager_v1());
++    text_input_->Initialize(connection_, this);
++  }
++}
++
++void WaylandInputMethodContext::DispatchKeyEvent(
++    std::unique_ptr<ui::Event> key_event,
++    DispatchKeyEventCallback callback) {
++  const bool handled = false;
++  std::move(callback).Run(handled);
++}
++
++void WaylandInputMethodContext::Reset() {
++  if (text_input_)
++    text_input_->Reset();
++}
++
++void WaylandInputMethodContext::Focus() {
++  if (!text_input_ || !connection_->GetCurrentKeyboardFocusedWindow())
++    return;
++
++  text_input_->Activate(connection_->GetCurrentKeyboardFocusedWindow());
++  text_input_->ShowInputPanel();
++}
++
++void WaylandInputMethodContext::Blur() {
++  if (text_input_) {
++    text_input_->Deactivate();
++    text_input_->HideInputPanel();
++  }
++}
++
++void WaylandInputMethodContext::SetCursorLocation(const gfx::Rect& rect) {
++  if (text_input_)
++    text_input_->SetCursorRect(rect);
++}
++
++void WaylandInputMethodContext::OnPreeditString(const std::string& text,
++                                                int preedit_cursor) {
++  gfx::Range selection_range = gfx::Range::InvalidRange();
++
++  // TODO(jani) Handle selection range
++
++  if (!selection_range.IsValid()) {
++    int cursor_pos = (preedit_cursor) ? text.length() : preedit_cursor;
++    selection_range.set_start(cursor_pos);
++    selection_range.set_end(cursor_pos);
++  }
++
++  ui::CompositionText composition_text;
++  composition_text.text = base::UTF8ToUTF16(text);
++  composition_text.selection = selection_range;
++  delegate_->OnPreeditChanged(composition_text);
++}
++
++void WaylandInputMethodContext::OnCommitString(const std::string& text) {
++  delegate_->OnCommit(base::UTF8ToUTF16(text));
++}
++
++void WaylandInputMethodContext::OnKeysym(uint32_t key,
++                                         uint32_t state,
++                                         uint32_t modifiers) {
++  uint8_t flags = 0;  // for now ignore modifiers
++  DomKey dom_key = NonPrintableXKeySymToDomKey(key);
++  KeyboardCode key_code = NonPrintableDomKeyToKeyboardCode(dom_key);
++  DomCode dom_code =
++      KeycodeConverter::NativeKeycodeToDomCode(key_code + kXkbKeycodeOffset);
++  if (dom_code == ui::DomCode::NONE)
++    return;
++
++  bool down = state == WL_KEYBOARD_KEY_STATE_PRESSED;
++  ui::KeyEvent event(down ? ET_KEY_PRESSED : ET_KEY_RELEASED, key_code,
++                     dom_code, flags, dom_key, EventTimeForNow());
++  connection_->DispatchUiEvent(&event);
++}
++
++}  // namespace ui
+diff --git a/ui/ozone/platform/wayland/wayland_input_method_context.h b/ui/ozone/platform/wayland/wayland_input_method_context.h
+new file mode 100644
+index 000000000000..51fb6ffc1c2b
+--- /dev/null
++++ b/ui/ozone/platform/wayland/wayland_input_method_context.h
+@@ -0,0 +1,54 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_OZONE_PLATFORM_WAYLAND_WAYLAND_INPUT_METHOD_CONTEXT_H_
++#define UI_OZONE_PLATFORM_WAYLAND_WAYLAND_INPUT_METHOD_CONTEXT_H_
++
++#include "base/macros.h"
++#include "services/ui/public/interfaces/ime/linux_input_method_context.mojom.h"
++#include "ui/events/ozone/evdev/event_dispatch_callback.h"
++#include "ui/ozone/platform/wayland/zwp_text_input_wrapper.h"
++
++namespace ui {
++
++class WaylandConnection;
++class WaylandWindow;
++class ZWPTextInputWrapper;
++
++class WaylandInputMethodContext : public ui::mojom::LinuxInputMethodContext,
++                                  public ZWPTextInputWrapperClient {
++ public:
++  WaylandInputMethodContext(WaylandConnection* connection);
++  ~WaylandInputMethodContext() override;
++
++  // ui::mojom::LinuxInputMethodContext.
++  void Initialize(ui::mojom::LinuxInputMethodContextDelegatePtr delegate,
++                  bool is_simple) override;
++  void DispatchKeyEvent(std::unique_ptr<ui::Event> key_event,
++                        DispatchKeyEventCallback callback) override;
++  void SetCursorLocation(const gfx::Rect& rect) override;
++  void Reset() override;
++  void Focus() override;
++  void Blur() override;
++
++  // ui::ZWPTextInputWrapperClient
++  void OnPreeditString(const std::string& text, int preedit_cursor) override;
++  void OnCommitString(const std::string& text) override;
++  void OnKeysym(uint32_t key, uint32_t state, uint32_t modifiers) override;
++
++ private:
++  WaylandConnection* connection_ = nullptr;
++  bool use_ozone_wayland_vkb_;
++
++  std::unique_ptr<ZWPTextInputWrapper> text_input_;
++
++  // Delegate interface back to IME code in ui.
++  ui::mojom::LinuxInputMethodContextDelegatePtr delegate_;
++
++  DISALLOW_COPY_AND_ASSIGN(WaylandInputMethodContext);
++};
++
++}  // namespace ui
++
++#endif  // UI_OZONE_PLATFORM_WAYLAND_WAYLAND_INPUT_METHOD_CONTEXT_H_
+\ No newline at end of file
+diff --git a/ui/ozone/platform/wayland/wayland_input_method_context_unittests.cc b/ui/ozone/platform/wayland/wayland_input_method_context_unittests.cc
+new file mode 100644
+index 000000000000..b1d8d3d81879
+--- /dev/null
++++ b/ui/ozone/platform/wayland/wayland_input_method_context_unittests.cc
+@@ -0,0 +1,148 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include <text-input-unstable-v1-server-protocol.h>
++#include <wayland-server.h>
++
++#include "mojo/public/cpp/bindings/binding.h"
++#include "testing/gmock/include/gmock/gmock.h"
++#include "testing/gtest/include/gtest/gtest.h"
++#include "ui/events/event.h"
++#include "ui/ozone/platform/wayland/fake_server.h"
++#include "ui/ozone/platform/wayland/wayland_input_method_context.h"
++#include "ui/ozone/platform/wayland/wayland_test.h"
++#include "ui/ozone/platform/wayland/wayland_window.h"
++
++using ::testing::SaveArg;
++using ::testing::_;
++
++namespace ui {
++
++class TestInputMethodContextDelegate
++    : public ui::mojom::LinuxInputMethodContextDelegate {
++ public:
++  TestInputMethodContextDelegate(
++      ui::mojom::LinuxInputMethodContextDelegateRequest request)
++      : binding_(this, std::move(request)) {}
++
++  void OnCommit(const base::string16& text) override {
++    was_on_commit_called_ = true;
++  }
++  void OnPreeditChanged(const ui::CompositionText& composition_text) override {
++    was_on_preedit_changed_called_ = true;
++  }
++  void OnPreeditEnd() override {}
++  void OnPreeditStart() override {}
++
++  bool was_on_commit_called() { return was_on_commit_called_; }
++
++  bool was_on_preedit_changed_called() {
++    return was_on_preedit_changed_called_;
++  }
++
++ private:
++  mojo::Binding<ui::mojom::LinuxInputMethodContextDelegate> binding_;
++
++  bool was_on_commit_called_ = false;
++  bool was_on_preedit_changed_called_ = false;
++};
++
++class WaylandInputMethodContextTest : public WaylandTest {
++ public:
++  WaylandInputMethodContextTest() {}
++
++  void SetUp() override {
++    WaylandTest::SetUp();
++
++    Sync();
++
++    setenv("ENABLE_WAYLAND_IME", "true", 0);
++
++    input_method_context_delegate_request =
++        mojo::MakeRequest(&input_method_context_delegate_ptr);
++    input_method_context_delegate =
++        base::MakeUnique<TestInputMethodContextDelegate>(
++            std::move(input_method_context_delegate_request));
++
++    input_method_context =
++        std::make_unique<WaylandInputMethodContext>(&connection);
++    input_method_context->Initialize(
++        std::move(input_method_context_delegate_ptr), false);
++    connection.ScheduleFlush();
++
++    Sync();
++
++    zwp_text_input = server.text_input_manager_v1()->text_input.get();
++    window.set_keyboard_focus(true);
++
++    ASSERT_TRUE(connection.text_input_manager_v1());
++    ASSERT_TRUE(zwp_text_input);
++  }
++
++ protected:
++  ui::mojom::LinuxInputMethodContextDelegatePtr
++      input_method_context_delegate_ptr;
++  ui::mojom::LinuxInputMethodContextDelegateRequest
++      input_method_context_delegate_request;
++
++  std::unique_ptr<TestInputMethodContextDelegate> input_method_context_delegate;
++  std::unique_ptr<WaylandInputMethodContext> input_method_context;
++  wl::MockZwpTextInput* zwp_text_input = nullptr;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(WaylandInputMethodContextTest);
++};
++
++TEST_P(WaylandInputMethodContextTest, Focus) {
++  EXPECT_CALL(*zwp_text_input, Activate(surface->resource()));
++  EXPECT_CALL(*zwp_text_input, ShowInputPanel());
++  input_method_context->Focus();
++  connection.ScheduleFlush();
++  Sync();
++}
++
++TEST_P(WaylandInputMethodContextTest, Blur) {
++  EXPECT_CALL(*zwp_text_input, Deactivate());
++  EXPECT_CALL(*zwp_text_input, HideInputPanel());
++  input_method_context->Blur();
++  connection.ScheduleFlush();
++  Sync();
++}
++
++TEST_P(WaylandInputMethodContextTest, Reset) {
++  EXPECT_CALL(*zwp_text_input, Reset());
++  input_method_context->Reset();
++  connection.ScheduleFlush();
++  Sync();
++}
++
++TEST_P(WaylandInputMethodContextTest, SetCursorLocation) {
++  EXPECT_CALL(*zwp_text_input, SetCursorRect(50, 0, 1, 1));
++  input_method_context->SetCursorLocation(gfx::Rect(50, 0, 1, 1));
++  connection.ScheduleFlush();
++  Sync();
++}
++
++TEST_P(WaylandInputMethodContextTest, OnPreeditChanged) {
++  zwp_text_input_v1_send_preedit_string(zwp_text_input->resource(), 0,
++                                        "PreeditString", "");
++  Sync();
++  EXPECT_TRUE(input_method_context_delegate->was_on_preedit_changed_called());
++}
++
++TEST_P(WaylandInputMethodContextTest, OnCommit) {
++  zwp_text_input_v1_send_commit_string(zwp_text_input->resource(), 0,
++                                       "CommitString");
++  Sync();
++  EXPECT_TRUE(input_method_context_delegate->was_on_commit_called());
++}
++
++INSTANTIATE_TEST_CASE_P(XdgVersionV5Test,
++                        WaylandInputMethodContextTest,
++                        ::testing::Values(kXdgShellV5));
++INSTANTIATE_TEST_CASE_P(XdgVersionV6Test,
++                        WaylandInputMethodContextTest,
++                        ::testing::Values(kXdgShellV6));
++
++}  // namespace ui
+diff --git a/ui/ozone/platform/wayland/wayland_object.cc b/ui/ozone/platform/wayland/wayland_object.cc
+index bff6f358c9dc..1ab860680e21 100644
+--- a/ui/ozone/platform/wayland/wayland_object.cc
++++ b/ui/ozone/platform/wayland/wayland_object.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "ui/ozone/platform/wayland/wayland_object.h"
+ 
++#include <text-input-unstable-v1-client-protocol.h>
+ #include <wayland-client.h>
+ #include <xdg-shell-unstable-v5-client-protocol.h>
+ #include <xdg-shell-unstable-v6-client-protocol.h>
+@@ -127,4 +128,14 @@ const wl_interface* ObjectTraits<zxdg_positioner_v6>::interface =
+ void (*ObjectTraits<zxdg_positioner_v6>::deleter)(zxdg_positioner_v6*) =
+     &zxdg_positioner_v6_destroy;
+ 
++const wl_interface* ObjectTraits<zwp_text_input_manager_v1>::interface =
++    &zwp_text_input_manager_v1_interface;
++void (*ObjectTraits<zwp_text_input_manager_v1>::deleter)(
++    zwp_text_input_manager_v1*) = &zwp_text_input_manager_v1_destroy;
++
++const wl_interface* ObjectTraits<zwp_text_input_v1>::interface =
++    &zwp_text_input_v1_interface;
++void (*ObjectTraits<zwp_text_input_v1>::deleter)(zwp_text_input_v1*) =
++    &zwp_text_input_v1_destroy;
++
+ }  // namespace wl
+diff --git a/ui/ozone/platform/wayland/wayland_object.h b/ui/ozone/platform/wayland/wayland_object.h
+index c54cb42d52cc..874b2f8c87e8 100644
+--- a/ui/ozone/platform/wayland/wayland_object.h
++++ b/ui/ozone/platform/wayland/wayland_object.h
+@@ -30,6 +30,8 @@ struct zxdg_surface_v6;
+ struct zxdg_toplevel_v6;
+ struct zxdg_popup_v6;
+ struct zxdg_positioner_v6;
++struct zwp_text_input_manager_v1;
++struct zwp_text_input_v1;
+ 
+ namespace wl {
+ 
+@@ -168,6 +170,18 @@ struct ObjectTraits<zxdg_positioner_v6> {
+   static void (*deleter)(zxdg_positioner_v6*);
+ };
+ 
++template <>
++struct ObjectTraits<zwp_text_input_manager_v1> {
++  static const wl_interface* interface;
++  static void (*deleter)(zwp_text_input_manager_v1*);
++};
++
++template <>
++struct ObjectTraits<zwp_text_input_v1> {
++  static const wl_interface* interface;
++  static void (*deleter)(zwp_text_input_v1*);
++};
++
+ struct Deleter {
+   template <typename T>
+   void operator()(T* obj) {
+diff --git a/ui/ozone/platform/wayland/wayland_window.cc b/ui/ozone/platform/wayland/wayland_window.cc
+index 636fbb2042f2..de25dc87f2ff 100644
+--- a/ui/ozone/platform/wayland/wayland_window.cc
++++ b/ui/ozone/platform/wayland/wayland_window.cc
+@@ -205,6 +205,9 @@ bool WaylandWindow::HasCapture() {
+ }
+ 
+ void WaylandWindow::Show() {
++  if (!is_tooltip_)
++    set_keyboard_focus(true);
++
+   if (xdg_surface_)
+     return;
+   if (is_tooltip_) {
+diff --git a/ui/ozone/platform/wayland/wayland_window.h b/ui/ozone/platform/wayland/wayland_window.h
+index b7b9e70ad08c..f4fd4b689a53 100644
+--- a/ui/ozone/platform/wayland/wayland_window.h
++++ b/ui/ozone/platform/wayland/wayland_window.h
+@@ -57,6 +57,8 @@ class WaylandWindow : public PlatformWindow, public PlatformEventDispatcher {
+     return has_pointer_focus_ || has_touch_focus_;
+   }
+ 
++  bool has_keyboard_focus() { return has_keyboard_focus_; }
++
+   // Tells if it is a focused popup.
+   bool is_focused_popup() { return is_popup() && has_pointer_or_touch_focus(); }
+ 
+diff --git a/ui/ozone/platform/wayland/zwp_text_input_wrapper.h b/ui/ozone/platform/wayland/zwp_text_input_wrapper.h
+new file mode 100644
+index 000000000000..a8c8d362e1a7
+--- /dev/null
++++ b/ui/ozone/platform/wayland/zwp_text_input_wrapper.h
+@@ -0,0 +1,50 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_OZONE_PLATFORM_WAYLAND_ZWP_TEXT_INPUT_WRAPPER_H_
++#define UI_OZONE_PLATFORM_WAYLAND_ZWP_TEXT_INPUT_WRAPPER_H_
++
++#include "ui/ozone/platform/wayland/wayland_object.h"
++
++namespace gfx {
++class Rect;
++}
++
++namespace ui {
++
++class WaylandConnection;
++class WaylandWindow;
++
++class ZWPTextInputWrapperClient {
++ public:
++  virtual ~ZWPTextInputWrapperClient() {}
++
++  virtual void OnPreeditString(const std::string& text,
++                               int32_t preedit_cursor) = 0;
++  virtual void OnCommitString(const std::string& text) = 0;
++  virtual void OnKeysym(uint32_t key, uint32_t state, uint32_t modifiers) = 0;
++};
++
++// A wrapper around different versions of zwp text inputs.
++class ZWPTextInputWrapper {
++ public:
++  virtual ~ZWPTextInputWrapper() {}
++
++  virtual void Initialize(WaylandConnection* connection,
++                          ZWPTextInputWrapperClient* client) = 0;
++
++  virtual void Reset() = 0;
++
++  virtual void Activate(WaylandWindow* window) = 0;
++  virtual void Deactivate() = 0;
++
++  virtual void ShowInputPanel() = 0;
++  virtual void HideInputPanel() = 0;
++
++  virtual void SetCursorRect(const gfx::Rect& rect) = 0;
++};
++
++}  // namespace ui
++
++#endif  // UI_OZONE_PLATFORM_WAYLAND_ZWP_TEXT_INPUT_WRAPPER_H_
+diff --git a/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc
+new file mode 100644
+index 000000000000..07f10e42b607
+--- /dev/null
++++ b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc
+@@ -0,0 +1,187 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h"
++
++#include "base/memory/ptr_util.h"
++#include "ui/ozone/platform/wayland/wayland_connection.h"
++#include "ui/ozone/platform/wayland/wayland_window.h"
++
++namespace ui {
++
++ZWPTextInputWrapperV1::ZWPTextInputWrapperV1(
++    zwp_text_input_manager_v1* text_input_manager)
++    : client_(0) {
++  static const zwp_text_input_v1_listener text_input_listener = {
++      &ZWPTextInputWrapperV1::OnEnter,         // text_input_enter,
++      &ZWPTextInputWrapperV1::OnLeave,         // text_input_leave,
++      &ZWPTextInputWrapperV1::OnModifiersMap,  // text_input_modifiers_map,
++      &ZWPTextInputWrapperV1::
++          OnInputPanelState,                    // text_input_input_panel_state,
++      &ZWPTextInputWrapperV1::OnPreeditString,  // text_input_preedit_string,
++      &ZWPTextInputWrapperV1::OnPreeditStyling,  // text_input_preedit_styling,
++      &ZWPTextInputWrapperV1::OnPreeditCursor,   // text_input_preedit_cursor,
++      &ZWPTextInputWrapperV1::OnCommitString,    // text_input_commit_string,
++      &ZWPTextInputWrapperV1::OnCursorPosition,  // text_input_cursor_position,
++      &ZWPTextInputWrapperV1::
++          OnDeleteSurroundingText,       // text_input_delete_surrounding_text,
++      &ZWPTextInputWrapperV1::OnKeysym,  // text_input_keysym,
++      &ZWPTextInputWrapperV1::OnLanguage,       // text_input_language,
++      &ZWPTextInputWrapperV1::OnTextDirection,  // text_input_text_direction
++  };
++  ResetInputEventState();
++
++  zwp_text_input_v1* text_input =
++      zwp_text_input_manager_v1_create_text_input(text_input_manager);
++  obj_ = wl::Object<zwp_text_input_v1>(text_input);
++
++  zwp_text_input_v1_add_listener(text_input, &text_input_listener, this);
++}
++
++ZWPTextInputWrapperV1::~ZWPTextInputWrapperV1() {}
++
++void ZWPTextInputWrapperV1::Initialize(WaylandConnection* connection,
++                                       ZWPTextInputWrapperClient* client) {
++  connection_ = connection;
++  client_ = client;
++}
++
++void ZWPTextInputWrapperV1::Reset() {
++  ResetInputEventState();
++  zwp_text_input_v1_reset(obj_.get());
++}
++
++void ZWPTextInputWrapperV1::Activate(WaylandWindow* window) {
++  zwp_text_input_v1_activate(obj_.get(), connection_->seat(),
++                             window->surface());
++}
++
++void ZWPTextInputWrapperV1::Deactivate() {
++  zwp_text_input_v1_deactivate(obj_.get(), connection_->seat());
++}
++
++void ZWPTextInputWrapperV1::ShowInputPanel() {
++  zwp_text_input_v1_show_input_panel(obj_.get());
++}
++
++void ZWPTextInputWrapperV1::HideInputPanel() {
++  zwp_text_input_v1_hide_input_panel(obj_.get());
++}
++
++void ZWPTextInputWrapperV1::SetCursorRect(const gfx::Rect& rect) {
++  zwp_text_input_v1_set_cursor_rectangle(obj_.get(), rect.x(), rect.y(),
++                                         rect.width(), rect.height());
++}
++
++void ZWPTextInputWrapperV1::ResetInputEventState() {
++  preedit_cursor_ = -1;
++}
++
++// zwp_text_input_v1_listener
++
++void ZWPTextInputWrapperV1::OnEnter(void* data,
++                                    struct zwp_text_input_v1* text_input,
++                                    struct wl_surface* surface) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnLeave(void* data,
++                                    struct zwp_text_input_v1* text_input) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnModifiersMap(void* data,
++                                           struct zwp_text_input_v1* text_input,
++                                           struct wl_array* map) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnInputPanelState(
++    void* data,
++    struct zwp_text_input_v1* text_input,
++    uint32_t state) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnPreeditString(
++    void* data,
++    struct zwp_text_input_v1* text_input,
++    uint32_t serial,
++    const char* text,
++    const char* commit) {
++  ZWPTextInputWrapperV1* wti = static_cast<ZWPTextInputWrapperV1*>(data);
++  wti->ResetInputEventState();
++  wti->client_->OnPreeditString(std::string(text), wti->preedit_cursor_);
++}
++
++void ZWPTextInputWrapperV1::OnPreeditStyling(
++    void* data,
++
++    struct zwp_text_input_v1* text_input,
++    uint32_t index,
++    uint32_t length,
++    uint32_t style) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnPreeditCursor(
++    void* data,
++    struct zwp_text_input_v1* text_input,
++    int32_t index) {
++  ZWPTextInputWrapperV1* wti = static_cast<ZWPTextInputWrapperV1*>(data);
++  wti->preedit_cursor_ = index;
++}
++
++void ZWPTextInputWrapperV1::OnCommitString(void* data,
++                                           struct zwp_text_input_v1* text_input,
++                                           uint32_t serial,
++                                           const char* text) {
++  ZWPTextInputWrapperV1* wti = static_cast<ZWPTextInputWrapperV1*>(data);
++  wti->ResetInputEventState();
++  wti->client_->OnCommitString(std::string(text));
++}
++
++void ZWPTextInputWrapperV1::OnCursorPosition(
++    void* data,
++    struct zwp_text_input_v1* text_input,
++    int32_t index,
++    int32_t anchor) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnDeleteSurroundingText(
++    void* data,
++    struct zwp_text_input_v1* text_input,
++    int32_t index,
++    uint32_t length) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnKeysym(void* data,
++                                     struct zwp_text_input_v1* text_input,
++                                     uint32_t serial,
++                                     uint32_t time,
++                                     uint32_t key,
++                                     uint32_t state,
++                                     uint32_t modifiers) {
++  ZWPTextInputWrapperV1* wti = static_cast<ZWPTextInputWrapperV1*>(data);
++  wti->client_->OnKeysym(key, state, modifiers);
++}
++
++void ZWPTextInputWrapperV1::OnLanguage(void* data,
++                                       struct zwp_text_input_v1* text_input,
++                                       uint32_t serial,
++                                       const char* language) {
++  NOTIMPLEMENTED_LOG_ONCE();
++}
++
++void ZWPTextInputWrapperV1::OnTextDirection(
++    void* data,
++    struct zwp_text_input_v1* text_input,
++    uint32_t serial,
++    uint32_t direction) {
++  // Not implemented
++}
++
++}  // namespace ui
+diff --git a/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h
+new file mode 100644
+index 000000000000..330c1b1ff78f
+--- /dev/null
++++ b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h
+@@ -0,0 +1,104 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_OZONE_PLATFORM_WAYLAND_ZWP_TEXT_INPUT_WRAPPER_V1_H_
++#define UI_OZONE_PLATFORM_WAYLAND_ZWP_TEXT_INPUT_WRAPPER_V1_H_
++
++#include <text-input-unstable-v1-client-protocol.h>
++#include <string>
++
++#include "ui/ozone/platform/wayland/zwp_text_input_wrapper.h"
++
++namespace gfx {
++class Rect;
++}
++
++namespace ui {
++
++class WaylandConnection;
++class WaylandWindow;
++
++class ZWPTextInputWrapperV1 : public ZWPTextInputWrapper {
++ public:
++  ZWPTextInputWrapperV1(zwp_text_input_manager_v1* text_input_manager);
++  ~ZWPTextInputWrapperV1() override;
++
++  void Initialize(WaylandConnection* connection,
++                  ZWPTextInputWrapperClient* client) override;
++
++  void Reset() override;
++
++  void Activate(WaylandWindow* window) override;
++  void Deactivate() override;
++
++  void ShowInputPanel() override;
++  void HideInputPanel() override;
++
++  void SetCursorRect(const gfx::Rect& rect) override;
++
++ private:
++  void ResetInputEventState();
++
++  // zwp_text_input_v1_listener
++  static void OnEnter(void* data,
++                      struct zwp_text_input_v1* text_input,
++                      struct wl_surface* surface);
++  static void OnLeave(void* data, struct zwp_text_input_v1* text_input);
++  static void OnModifiersMap(void* data,
++                             struct zwp_text_input_v1* text_input,
++                             struct wl_array* map);
++  static void OnInputPanelState(void* data,
++                                struct zwp_text_input_v1* text_input,
++                                uint32_t state);
++  static void OnPreeditString(void* data,
++                              struct zwp_text_input_v1* text_input,
++                              uint32_t serial,
++                              const char* text,
++                              const char* commit);
++  static void OnPreeditStyling(void* data,
++                               struct zwp_text_input_v1* text_input,
++                               uint32_t index,
++                               uint32_t length,
++                               uint32_t style);
++  static void OnPreeditCursor(void* data,
++                              struct zwp_text_input_v1* text_input,
++                              int32_t index);
++  static void OnCommitString(void* data,
++                             struct zwp_text_input_v1* text_input,
++                             uint32_t serial,
++                             const char* text);
++  static void OnCursorPosition(void* data,
++                               struct zwp_text_input_v1* text_input,
++                               int32_t index,
++                               int32_t anchor);
++  static void OnDeleteSurroundingText(void* data,
++                                      struct zwp_text_input_v1* text_input,
++                                      int32_t index,
++                                      uint32_t length);
++  static void OnKeysym(void* data,
++                       struct zwp_text_input_v1* text_input,
++                       uint32_t serial,
++                       uint32_t time,
++                       uint32_t key,
++                       uint32_t state,
++                       uint32_t modifiers);
++  static void OnLanguage(void* data,
++                         struct zwp_text_input_v1* text_input,
++                         uint32_t serial,
++                         const char* language);
++  static void OnTextDirection(void* data,
++                              struct zwp_text_input_v1* text_input,
++                              uint32_t serial,
++                              uint32_t direction);
++
++  WaylandConnection* connection_ = nullptr;
++  wl::Object<zwp_text_input_v1> obj_;
++  ZWPTextInputWrapperClient* client_;
++
++  int32_t preedit_cursor_;
++};
++
++}  // namespace ui
++
++#endif  // UI_OZONE_PLATFORM_WAYLAND_ZWP_TEXT_INPUT_WRAPPER_V1_H_
+diff --git a/ui/ozone/public/ozone_switches.cc b/ui/ozone/public/ozone_switches.cc
+index f7a772a55de1..dd20b40bed5f 100644
+--- a/ui/ozone/public/ozone_switches.cc
++++ b/ui/ozone/public/ozone_switches.cc
+@@ -15,4 +15,7 @@ const char kOzoneDumpFile[] = "ozone-dump-file";
+ // Try to enable drm atomic. This works only with drm platform.
+ const char kEnableDrmAtomic[] = "enable-drm-atomic";
+ 
++// Try to enable wayland input method editor.
++const char kEnableWaylandIme[] = "enable-wayland-ime";
++
+ }  // namespace switches
+diff --git a/ui/ozone/public/ozone_switches.h b/ui/ozone/public/ozone_switches.h
+index e53912bf47c0..d26c9d1c1d30 100644
+--- a/ui/ozone/public/ozone_switches.h
++++ b/ui/ozone/public/ozone_switches.h
+@@ -16,6 +16,8 @@ OZONE_BASE_EXPORT extern const char kOzoneDumpFile[];
+ 
+ OZONE_BASE_EXPORT extern const char kEnableDrmAtomic[];
+ 
++OZONE_BASE_EXPORT extern const char kEnableWaylandIme[];
++
+ }  // namespace switches
+ 
+ #endif  // UI_OZONE_PUBLIC_OZONE_SWITCHES_H_
+-- 
+2.11.0
+

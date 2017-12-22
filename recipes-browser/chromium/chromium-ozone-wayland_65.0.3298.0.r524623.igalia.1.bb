@@ -11,4 +11,5 @@ SRC_URI += " \
  file://0001-Fix-non-mac-build-of-chrome_binary.patch \
  file://0001-GCC-build-explicitely-call-this-on-lambda-expression.patch \
  file://0001-Fix-vcvt_f16_f32-is-not-declared-in-this-scope.patch;patchdir=third_party/skia \
+ file://0001-Ozone-Wayland-IME-integration.patch \
 "
