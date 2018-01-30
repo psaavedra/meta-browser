@@ -1,0 +1,33 @@
+From 55c0cc761a7f1560aa818e8d06ef8adb7cbd40fa Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Thu, 8 Feb 2018 10:04:18 +0200
+Subject: [PATCH] Use constexpr needed for in-class initialization
+
+../../third_party/WebKit/Source/core/loader/IdlenessDetector.cpp:18:35:
+error: 'constexpr' needed for in-class initialization of static data
+member 'const TimeDelta blink::IdlenessDetector::kNetworkQuietWindow' of
+non-integral type [-fpermissive]
+ const TimeDelta IdlenessDetector::kNetworkQuietWindow;
+                                   ^~~~~~~~~~~~~~~~~~~
+---
+ third_party/WebKit/Source/core/loader/IdlenessDetector.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/third_party/WebKit/Source/core/loader/IdlenessDetector.cpp b/third_party/WebKit/Source/core/loader/IdlenessDetector.cpp
+index 32cadd389da7..58e140a634da 100644
+--- a/third_party/WebKit/Source/core/loader/IdlenessDetector.cpp
++++ b/third_party/WebKit/Source/core/loader/IdlenessDetector.cpp
+@@ -15,8 +15,8 @@
+ 
+ namespace blink {
+ 
+-const TimeDelta IdlenessDetector::kNetworkQuietWindow;
+-const TimeDelta IdlenessDetector::kNetworkQuietWatchdog;
++constexpr TimeDelta IdlenessDetector::kNetworkQuietWindow;
++constexpr TimeDelta IdlenessDetector::kNetworkQuietWatchdog;
+ 
+ void IdlenessDetector::Shutdown() {
+   Stop();
+-- 
+2.11.0
+

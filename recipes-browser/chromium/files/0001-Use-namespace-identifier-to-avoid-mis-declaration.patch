@@ -1,0 +1,51 @@
+From a0cf4bbfd750353eb4a87585dca3a1b8980ccebc Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Thu, 8 Feb 2018 09:45:39 +0200
+Subject: [PATCH] Use namespace identifier to avoid mis declaration.
+
+../../third_party/WebKit/Source/modules/indexeddb/IDBKey.h:112:3: error:
+declaration of 'const WTF::String& blink::IDBKey::String() const'
+[-fpermissiv
+e]
+   }
+   ^
+---
+ third_party/WebKit/Source/modules/indexeddb/IDBKey.h     | 2 +-
+ third_party/WebKit/Source/modules/indexeddb/IDBKeyPath.h | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/third_party/WebKit/Source/modules/indexeddb/IDBKey.h b/third_party/WebKit/Source/modules/indexeddb/IDBKey.h
+index d5f062867441..9394c9be000f 100644
+--- a/third_party/WebKit/Source/modules/indexeddb/IDBKey.h
++++ b/third_party/WebKit/Source/modules/indexeddb/IDBKey.h
+@@ -106,7 +106,7 @@ class MODULES_EXPORT IDBKey {
+     return binary_;
+   }
+ 
+-  const String& String() const {
++  const WTF::String& String() const {
+     DCHECK_EQ(type_, kStringType);
+     return string_;
+   }
+diff --git a/third_party/WebKit/Source/modules/indexeddb/IDBKeyPath.h b/third_party/WebKit/Source/modules/indexeddb/IDBKeyPath.h
+index 953c58a40a67..3d2280b19b8f 100644
+--- a/third_party/WebKit/Source/modules/indexeddb/IDBKeyPath.h
++++ b/third_party/WebKit/Source/modules/indexeddb/IDBKeyPath.h
+@@ -60,12 +60,12 @@ class MODULES_EXPORT IDBKeyPath {
+ 
+   Type GetType() const { return type_; }
+ 
+-  const Vector<String>& Array() const {
++  const Vector<WTF::String>& Array() const {
+     DCHECK_EQ(type_, kArrayType);
+     return array_;
+   }
+ 
+-  const String& String() const {
++  const WTF::String& String() const {
+     DCHECK_EQ(type_, kStringType);
+     return string_;
+   }
+-- 
+2.11.0
+
