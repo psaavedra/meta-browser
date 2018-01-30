@@ -1,0 +1,36 @@
+From bb92f6964619eb7de5fc27de326f0697ce8030fe Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Wed, 7 Feb 2018 16:16:13 +0200
+Subject: [PATCH] Use SK_ARM_HAS_NEON guard in skia for float instructions.
+
+---
+ src/jumper/SkJumper_stages.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/jumper/SkJumper_stages.cpp b/src/jumper/SkJumper_stages.cpp
+index a9e662fb8d..f1ca8d0cac 100644
+--- a/src/jumper/SkJumper_stages.cpp
++++ b/src/jumper/SkJumper_stages.cpp
+@@ -666,7 +666,8 @@ SI F approx_powf(F x, F y) {
+ }
+ 
+ SI F from_half(U16 h) {
+-#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
++#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3) && \
++        defined(SK_ARM_HAS_NEON)  // Temporary workaround for some Google3 builds.
+     return vcvt_f32_f16(h);
+ 
+ #elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+@@ -686,7 +687,8 @@ SI F from_half(U16 h) {
+ }
+ 
+ SI U16 to_half(F f) {
+-#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
++#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3) && \
++        defined(SK_ARM_HAS_NEON)  // Temporary workaround for some Google3 builds.
+     return vcvt_f16_f32(f);
+ 
+ #elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+-- 
+2.11.0
+

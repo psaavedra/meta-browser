@@ -1,0 +1,77 @@
+From 5331966d193421dfcf5223676154f528aa5f67e7 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Mon, 12 Feb 2018 11:08:43 +0200
+Subject: [PATCH] Fix kiosk and start-maximized modes in AGL.
+
+For some reason, weston gets stuck when chromium start with kiosk
+or start maximized mode until the surface is activated.
+
+To avoid this, set the maximize and fullscreen to be pending until
+surface is activated.
+---
+ ui/ozone/platform/wayland/wayland_window.cc | 20 ++++++++++++++++++++
+ ui/ozone/platform/wayland/wayland_window.h  |  3 +++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/ui/ozone/platform/wayland/wayland_window.cc b/ui/ozone/platform/wayland/wayland_window.cc
+index f933aeb52105..3969c9dd28a1 100644
+--- a/ui/ozone/platform/wayland/wayland_window.cc
++++ b/ui/ozone/platform/wayland/wayland_window.cc
+@@ -285,6 +285,11 @@ void WaylandWindow::ReleaseCapture() {
+ void WaylandWindow::ToggleFullscreen() {
+   DCHECK(xdg_surface_ && !xdg_popup_);
+ 
++  if (!is_active_) {
++    pending_fullscreen_ = true;
++    return;
++  }
++
+   // TODO(msisov, tonikitoo): add multiscreen support. As the documentation says
+   // if xdg_surface_set_fullscreen() is not provided with wl_output, it's up to
+   // the compositor to choose which display will be used to map this surface.
+@@ -307,6 +312,11 @@ void WaylandWindow::ToggleFullscreen() {
+ void WaylandWindow::Maximize() {
+   DCHECK(xdg_surface_ && !xdg_popup_);
+ 
++  if (!is_active_) {
++    pending_maximized_ = true;
++    return;
++  }
++
+   if (IsFullscreen())
+     ToggleFullscreen();
+ 
+@@ -455,6 +465,16 @@ void WaylandWindow::HandleSurfaceConfigure(int32_t width,
+   is_active_ = is_activated;
+   if (was_active_ != is_active_)
+     delegate_->OnActivationChanged(is_active_);
++
++  if (!was_active_ && is_active_) {
++    if (pending_fullscreen_) {
++      ToggleFullscreen();
++    } else if (pending_maximized_) {
++      Maximize();
++    }
++    pending_fullscreen_ = false;
++    pending_maximized_ = false;
++  }
+ }
+ 
+ void WaylandWindow::OnCloseRequest() {
+diff --git a/ui/ozone/platform/wayland/wayland_window.h b/ui/ozone/platform/wayland/wayland_window.h
+index 8fe4b7cbb259..3a45edd42e7d 100644
+--- a/ui/ozone/platform/wayland/wayland_window.h
++++ b/ui/ozone/platform/wayland/wayland_window.h
+@@ -162,6 +162,9 @@ class WaylandWindow : public PlatformWindow, public PlatformEventDispatcher {
+ 
+   bool is_tooltip_ = false;
+ 
++  bool pending_fullscreen_ = false;
++  bool pending_maximized_ = false;
++
+   DISALLOW_COPY_AND_ASSIGN(WaylandWindow);
+ };
+ 
+-- 
+2.11.0
+
