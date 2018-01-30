@@ -1,0 +1,29 @@
+From f6f596826cb2e1856829fe5b9ce632d8e30b2ed0 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Tue, 30 Jan 2018 12:36:05 +0200
+Subject: [PATCH] GCC build: set inputs to ""
+
+A workaround to be able to build without clang, by setting
+unused inputs variable to "".
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+ build/config/compiler/BUILD.gn | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index 4e464d803101..399277d186b5 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -234,6 +234,8 @@ config("compiler") {
+         }
+         inputs += [ _sample_path ]
+       }
++    } else {
++      inputs += [ "" ]
+     }
+ 
+     # Stack protection.
+-- 
+2.11.0
+
