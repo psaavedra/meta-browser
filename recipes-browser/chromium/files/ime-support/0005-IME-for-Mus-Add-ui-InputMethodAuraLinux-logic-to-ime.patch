@@ -1,0 +1,389 @@
+From 600cdaa2295462817b8048e406b1573d516a39e6 Mon Sep 17 00:00:00 2001
+From: Jani Hautakangas <jani.hautakangas@lge.com>
+Date: Fri, 19 Jan 2018 15:20:08 +0200
+Subject: [PATCH 5/5] IME for Mus: Add ui::InputMethodAuraLinux logic to ime
+ driver
+
+Modify browser's IMEDriver so we have access to
+ui::InputMethodAuraLinux functionality in mus+ash.
+---
+ chrome/browser/ui/BUILD.gn                         |   2 +
+ .../browser/ui/views/ime_driver/ime_driver_mus.cc  |  23 +++
+ .../browser/ui/views/ime_driver/ime_driver_mus.h   |  11 ++
+ .../views/ime_driver/input_method_bridge_linux.cc  |  46 ++++++
+ .../views/ime_driver/input_method_bridge_linux.h   |  38 +++++
+ .../input_method_bridge_linux_unittest.cc          | 161 +++++++++++++++++++++
+ chrome/test/BUILD.gn                               |   2 +
+ 7 files changed, 283 insertions(+)
+ create mode 100644 chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+ create mode 100644 chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+ create mode 100644 chrome/browser/ui/views/ime_driver/input_method_bridge_linux_unittest.cc
+
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index 651395b47079..0f5eb8fcefce 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -2952,6 +2952,8 @@ split_static_library("ui") {
+         # apart from aura::Window, which is also not supported).
+         "views/ime_driver/ime_driver_mus.cc",
+         "views/ime_driver/ime_driver_mus.h",
++        "views/ime_driver/input_method_bridge_linux.cc",
++        "views/ime_driver/input_method_bridge_linux.h",
+         "views/ime_driver/remote_text_input_client.cc",
+         "views/ime_driver/remote_text_input_client.h",
+         "views/ime_driver/simple_input_method.cc",
+diff --git a/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc b/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc
+index 1b58d644c7d2..8d3b546396e2 100644
+--- a/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc
++++ b/chrome/browser/ui/views/ime_driver/ime_driver_mus.cc
+@@ -15,12 +15,25 @@
+ 
+ #if defined(OS_CHROMEOS)
+ #include "chrome/browser/ui/views/ime_driver/input_method_bridge_chromeos.h"
++#elif defined(OS_LINUX) && defined(USE_OZONE)
++#include "chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h"
++#include "ui/aura/mus/linux_input_method_context_factory_mus.h"
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++#include "ui/base/ime/linux/linux_input_method_context_factory.h"
+ #else
+ #include "chrome/browser/ui/views/ime_driver/simple_input_method.h"
+ #endif  // defined(OS_CHROMEOS)
+ 
+ IMEDriver::IMEDriver() {
+   ui::IMEBridge::Initialize();
++
++#if defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++  input_method_context_factory_ =
++      base::MakeUnique<aura::LinuxInputMethodContextFactoryMus>(
++          content::ServiceManagerConnection::GetForProcess()->GetConnector());
++  ui::LinuxInputMethodContextFactory::SetInstance(
++      input_method_context_factory_.get());
++#endif
+ }
+ 
+ IMEDriver::~IMEDriver() {}
+@@ -49,6 +62,16 @@ void IMEDriver::StartSession(ui::mojom::StartSessionDetailsPtr details) {
+   mojo::MakeStrongBinding(
+       std::make_unique<InputMethodBridge>(std::move(remote_client)),
+       std::move(details->input_method_request));
++#elif defined(OS_LINUX) && defined(USE_OZONE)
++  std::unique_ptr<RemoteTextInputClient> remote_client =
++      base::MakeUnique<RemoteTextInputClient>(
++          ui::mojom::TextInputClientPtr(std::move(details->client)),
++          details->text_input_type, details->text_input_mode,
++          details->text_direction, details->text_input_flags,
++          details->caret_bounds);
++  mojo::MakeStrongBinding(
++      base::MakeUnique<InputMethodBridgeLinux>(std::move(remote_client)),
++      std::move(details->input_method_request));
+ #else
+   mojo::MakeStrongBinding(
+       std::make_unique<SimpleInputMethod>(ui::mojom::TextInputClientPtr(std::move(details->client))),
+diff --git a/chrome/browser/ui/views/ime_driver/ime_driver_mus.h b/chrome/browser/ui/views/ime_driver/ime_driver_mus.h
+index 50d89c1a9b15..5145edfef0bf 100644
+--- a/chrome/browser/ui/views/ime_driver/ime_driver_mus.h
++++ b/chrome/browser/ui/views/ime_driver/ime_driver_mus.h
+@@ -12,6 +12,12 @@
+ 
+ #include "services/ui/public/interfaces/ime/ime.mojom.h"
+ 
++#if defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++namespace aura {
++class LinuxInputMethodContextFactoryMus;
++}
++#endif
++
+ class IMEDriver : public ui::mojom::IMEDriver {
+  public:
+   IMEDriver();
+@@ -24,6 +30,11 @@ class IMEDriver : public ui::mojom::IMEDriver {
+   // ui::mojom::IMEDriver:
+   void StartSession(ui::mojom::StartSessionDetailsPtr details) override;
+ 
++#if defined(OS_LINUX) && defined(USE_OZONE) && !defined(OS_CHROMEOS)
++  std::unique_ptr<aura::LinuxInputMethodContextFactoryMus>
++      input_method_context_factory_;
++#endif
++
+   DISALLOW_COPY_AND_ASSIGN(IMEDriver);
+ };
+ 
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+new file mode 100644
+index 000000000000..1de28aff206a
+--- /dev/null
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+@@ -0,0 +1,46 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h"
++
++#include <utility>
++
++#include "base/memory/ptr_util.h"
++#include "ui/base/ime/input_method_auralinux.h"
++
++InputMethodBridgeLinux::InputMethodBridgeLinux(
++    std::unique_ptr<RemoteTextInputClient> client)
++    : client_(std::move(client)),
++      input_method_linux_(
++          base::MakeUnique<ui::InputMethodAuraLinux>(client_.get())) {
++  input_method_linux_->SetFocusedTextInputClient(client_.get());
++}
++
++InputMethodBridgeLinux::~InputMethodBridgeLinux() {}
++
++void InputMethodBridgeLinux::OnTextInputTypeChanged(
++    ui::TextInputType text_input_type) {
++  client_->SetTextInputType(text_input_type);
++  input_method_linux_->OnTextInputTypeChanged(client_.get());
++}
++
++void InputMethodBridgeLinux::OnCaretBoundsChanged(
++    const gfx::Rect& caret_bounds) {
++  client_->SetCaretBounds(caret_bounds);
++  input_method_linux_->OnCaretBoundsChanged(client_.get());
++}
++
++void InputMethodBridgeLinux::ProcessKeyEvent(std::unique_ptr<ui::Event> event,
++                                             ProcessKeyEventCallback callback) {
++  DCHECK(event->IsKeyEvent());
++  ui::KeyEvent* key_event = event->AsKeyEvent();
++  if (!key_event->is_char())
++    input_method_linux_->DispatchKeyEvent(key_event);
++  const bool handled = false;
++  std::move(callback).Run(handled);
++}
++
++void InputMethodBridgeLinux::CancelComposition() {
++  input_method_linux_->CancelComposition(client_.get());
++}
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+new file mode 100644
+index 000000000000..87d5a8558c65
+--- /dev/null
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+@@ -0,0 +1,38 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_IME_DRIVER_INPUT_METHOD_BRIDGE_LINUX_H_
++#define CHROME_BROWSER_UI_VIEWS_IME_DRIVER_INPUT_METHOD_BRIDGE_LINUX_H_
++
++#include "chrome/browser/ui/views/ime_driver/remote_text_input_client.h"
++#include "services/ui/public/interfaces/ime/ime.mojom.h"
++
++namespace ui {
++class InputMethodAuraLinux;
++}
++
++// This bridges between mojo InputMethod API and aura::InputMethodBridgeLinux.
++// It forwards the received events to an instance of
++// aura::InputMethodBridgeLinux.
++class InputMethodBridgeLinux : public ui::mojom::InputMethod {
++ public:
++  explicit InputMethodBridgeLinux(
++      std::unique_ptr<RemoteTextInputClient> client);
++  ~InputMethodBridgeLinux() override;
++
++  // ui::mojom::InputMethod:
++  void OnTextInputTypeChanged(ui::TextInputType text_input_type) override;
++  void OnCaretBoundsChanged(const gfx::Rect& caret_bounds) override;
++  void ProcessKeyEvent(std::unique_ptr<ui::Event> key_event,
++                       ProcessKeyEventCallback callback) override;
++  void CancelComposition() override;
++
++ private:
++  std::unique_ptr<RemoteTextInputClient> client_;
++  std::unique_ptr<ui::InputMethodAuraLinux> input_method_linux_;
++
++  DISALLOW_COPY_AND_ASSIGN(InputMethodBridgeLinux);
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_IME_DRIVER_INPUT_METHOD_BRIDGE_LINUX_H_
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux_unittest.cc b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux_unittest.cc
+new file mode 100644
+index 000000000000..cd228dd42988
+--- /dev/null
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux_unittest.cc
+@@ -0,0 +1,161 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include <stdint.h>
++
++#include "base/bind.h"
++#include "base/macros.h"
++#include "base/memory/ptr_util.h"
++#include "base/message_loop/message_loop.h"
++#include "base/run_loop.h"
++#include "base/strings/utf_string_conversions.h"
++#include "chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h"
++#include "content/public/test/test_browser_thread_bundle.h"
++#include "mojo/public/cpp/bindings/binding.h"
++#include "testing/gtest/include/gtest/gtest.h"
++#include "ui/base/ime/ime_bridge.h"
++#include "ui/events/event.h"
++#include "ui/events/event_constants.h"
++#include "ui/events/event_utils.h"
++#include "ui/events/keycodes/dom/dom_code.h"
++#include "ui/events/keycodes/dom/dom_key.h"
++#include "ui/events/keycodes/keyboard_code_conversion.h"
++#include "ui/events/keycodes/keyboard_codes.h"
++
++enum class CompositionEventType {
++  SET,
++  CONFIRM,
++  CLEAR,
++  INSERT_TEXT,
++  INSERT_CHAR
++};
++
++struct CompositionEvent {
++  CompositionEventType type;
++  base::string16 text_data;
++  base::char16 char_data;
++};
++
++class TestTextInputClient : public ui::mojom::TextInputClient {
++ public:
++  explicit TestTextInputClient(ui::mojom::TextInputClientRequest request)
++      : binding_(this, std::move(request)) {}
++
++  CompositionEvent WaitUntilCompositionEvent() {
++    if (!receieved_event_.has_value()) {
++      run_loop_ = base::MakeUnique<base::RunLoop>();
++      run_loop_->Run();
++      run_loop_.reset();
++    }
++    CompositionEvent result = receieved_event_.value();
++    receieved_event_.reset();
++    return result;
++  }
++
++ private:
++  void SetCompositionText(const ui::CompositionText& composition) override {
++    CompositionEvent ev = {CompositionEventType::SET, composition.text, 0};
++    receieved_event_ = ev;
++    if (run_loop_)
++      run_loop_->Quit();
++  }
++  void ConfirmCompositionText() override {
++    CompositionEvent ev = {CompositionEventType::CONFIRM, base::string16(), 0};
++    receieved_event_ = ev;
++    if (run_loop_)
++      run_loop_->Quit();
++  }
++  void ClearCompositionText() override {
++    CompositionEvent ev = {CompositionEventType::CLEAR, base::string16(), 0};
++    receieved_event_ = ev;
++    if (run_loop_)
++      run_loop_->Quit();
++  }
++  void InsertText(const std::string& text) override {
++    CompositionEvent ev = {CompositionEventType::INSERT_TEXT,
++                           base::UTF8ToUTF16(text), 0};
++    receieved_event_ = ev;
++    if (run_loop_)
++      run_loop_->Quit();
++  }
++  void InsertChar(std::unique_ptr<ui::Event> event) override {
++    ASSERT_TRUE(event->IsKeyEvent());
++    CompositionEvent ev = {CompositionEventType::INSERT_CHAR, base::string16(),
++                           event->AsKeyEvent()->GetCharacter()};
++    receieved_event_ = ev;
++    if (run_loop_)
++      run_loop_->Quit();
++  }
++  void DispatchKeyEventPostIME(
++      std::unique_ptr<ui::Event> event,
++      DispatchKeyEventPostIMECallback callback) override {
++    std::move(callback).Run(false);
++  }
++
++  mojo::Binding<ui::mojom::TextInputClient> binding_;
++  std::unique_ptr<base::RunLoop> run_loop_;
++  base::Optional<CompositionEvent> receieved_event_;
++
++  DISALLOW_COPY_AND_ASSIGN(TestTextInputClient);
++};
++
++class InputMethodBridgeLinuxTest : public testing::Test {
++ public:
++  InputMethodBridgeLinuxTest()
++      : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP) {}
++  ~InputMethodBridgeLinuxTest() override {}
++
++  void SetUp() override {
++    ui::IMEBridge::Initialize();
++
++    ui::mojom::TextInputClientPtr client_ptr;
++    client_ = base::MakeUnique<TestTextInputClient>(MakeRequest(&client_ptr));
++    input_method_ = base::MakeUnique<InputMethodBridgeLinux>(
++        base::MakeUnique<RemoteTextInputClient>(
++            std::move(client_ptr), ui::TEXT_INPUT_TYPE_TEXT,
++            ui::TEXT_INPUT_MODE_DEFAULT, base::i18n::LEFT_TO_RIGHT, 0,
++            gfx::Rect()));
++  }
++
++  bool ProcessKeyEvent(std::unique_ptr<ui::Event> event) {
++    handled_.reset();
++
++    input_method_->ProcessKeyEvent(
++        std::move(event),
++        base::Bind(&InputMethodBridgeLinuxTest::ProcessKeyEventCallback,
++                   base::Unretained(this)));
++
++    if (!handled_.has_value()) {
++      run_loop_ = base::MakeUnique<base::RunLoop>();
++      run_loop_->Run();
++      run_loop_.reset();
++    }
++
++    return handled_.value();
++  }
++
++  std::unique_ptr<ui::Event> UnicodeKeyPress(ui::KeyboardCode vkey,
++                                             ui::DomCode code,
++                                             int flags,
++                                             base::char16 character) const {
++    return base::MakeUnique<ui::KeyEvent>(ui::ET_KEY_PRESSED, vkey, code, flags,
++                                          ui::DomKey::FromCharacter(character),
++                                          ui::EventTimeForNow());
++  }
++
++ protected:
++  void ProcessKeyEventCallback(bool handled) {
++    handled_ = handled;
++    if (run_loop_)
++      run_loop_->Quit();
++  }
++
++  content::TestBrowserThreadBundle thread_bundle_;
++  std::unique_ptr<TestTextInputClient> client_;
++  std::unique_ptr<InputMethodBridgeLinux> input_method_;
++  std::unique_ptr<base::RunLoop> run_loop_;
++  base::Optional<bool> handled_;
++
++  DISALLOW_COPY_AND_ASSIGN(InputMethodBridgeLinuxTest);
++};
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index 74d723412c75..188eee0a36a5 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -4136,6 +4136,8 @@ test("unit_tests") {
+     ]
+     if (is_chromeos) {
+       sources += [ "../browser/ui/views/ime_driver/input_method_bridge_chromeos_unittest.cc" ]
++    } else if (is_linux) {
++      sources += [ "../browser/ui/views/ime_driver/input_method_bridge_linux_unittest.cc" ]
+     }
+     if (!is_chromeos && (!is_mac || mac_views_browser)) {
+       sources += [
+-- 
+2.11.0
+
