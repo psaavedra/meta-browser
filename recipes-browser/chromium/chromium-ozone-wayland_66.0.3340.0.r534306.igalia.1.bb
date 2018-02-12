@@ -7,6 +7,11 @@ SRC_URI += " \
  file://revert_base_optional/0003-Revert-Use-affirmative-expression-in-base-Optional.patch \
  file://revert_base_optional/0004-Revert-Fix-non-copyable-class-s-optional-move.patch \
  file://revert_base_optional/0005-Revert-Implement-conditional-constexpr-copy-move-con.patch \
+ file://ime-support/0001-Change-conflicting-mojo-enum-value.patch \
+ file://ime-support/0002-IME-for-Mus-Linux-IME-context-servification.patch \
+ file://ime-support/0003-Add-text-input-unstable-v1-protocol-to-wayland-proto.patch \
+ file://ime-support/0004-Ozone-Wayland-IME-integration.patch \
+ file://ime-support/0005-IME-for-Mus-Add-ui-InputMethodAuraLinux-logic-to-ime.patch \
  file://0001-Fix-kiosk-and-start-maximized-modes-in-AGL.patch \
  file://0001-Use-namespace-identifier-to-avoid-mis-declaration.patch \
  file://0001-Use-constexpr-needed-for-in-class-initialization.patch \

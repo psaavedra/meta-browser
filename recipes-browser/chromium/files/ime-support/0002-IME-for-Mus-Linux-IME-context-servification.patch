@@ -1,0 +1,917 @@
+From f4969b0f15efd78eb411dd05d25ad81e498ff3cc Mon Sep 17 00:00:00 2001
+From: Jani Hautakangas <jani.hautakangas@lge.com>
+Date: Mon, 15 Jan 2018 22:15:10 +0200
+Subject: [PATCH 2/5] IME for Mus: Linux IME context servification
+
+Servification of Linux IME context allows implementing
+IME context in Mus environment. This can be adopted to
+existing LinuxInputMethodContext implementations and is
+also an enabler for backends which need to run IME context
+out of browser thread. Mainly targeted for ozone wayland
+external mode that will run IME context in MUS thread.
+---
+ services/ui/manifest.json                          |   1 +
+ services/ui/public/interfaces/ime/BUILD.gn         |   1 +
+ services/ui/public/interfaces/ime/ime.typemap      |   2 +-
+ .../ime/linux_input_method_context.mojom           |  51 ++++
+ ui/aura/BUILD.gn                                   |   8 +
+ .../linux_input_method_context_delegate_impl.cc    |  48 ++++
+ .../mus/linux_input_method_context_delegate_impl.h |  48 ++++
+ .../mus/linux_input_method_context_factory_mus.cc  |  31 +++
+ .../mus/linux_input_method_context_factory_mus.h   |  36 +++
+ ui/aura/mus/linux_input_method_context_mus.cc      | 100 ++++++++
+ ui/aura/mus/linux_input_method_context_mus.h       |  70 ++++++
+ .../mus/linux_input_method_context_mus_unittest.cc | 268 +++++++++++++++++++++
+ .../mus/linux_input_method_context_mus_test_api.h  |  36 +++
+ ui/base/ime/BUILD.gn                               |  26 +-
+ 14 files changed, 717 insertions(+), 9 deletions(-)
+ create mode 100644 services/ui/public/interfaces/ime/linux_input_method_context.mojom
+ create mode 100644 ui/aura/mus/linux_input_method_context_delegate_impl.cc
+ create mode 100644 ui/aura/mus/linux_input_method_context_delegate_impl.h
+ create mode 100644 ui/aura/mus/linux_input_method_context_factory_mus.cc
+ create mode 100644 ui/aura/mus/linux_input_method_context_factory_mus.h
+ create mode 100644 ui/aura/mus/linux_input_method_context_mus.cc
+ create mode 100644 ui/aura/mus/linux_input_method_context_mus.h
+ create mode 100644 ui/aura/mus/linux_input_method_context_mus_unittest.cc
+ create mode 100644 ui/aura/test/mus/linux_input_method_context_mus_test_api.h
+
+diff --git a/services/ui/manifest.json b/services/ui/manifest.json
+index 3160ed5600af..904af8a3dd6e 100644
+--- a/services/ui/manifest.json
++++ b/services/ui/manifest.json
+@@ -16,6 +16,7 @@
+           "ui::mojom::Gpu",
+           "ui::mojom::IMEDriver",
+           "ui::mojom::InputDeviceServer",
++          "ui::mojom::LinuxInputMethodContext",
+           "ui::mojom::WindowTreeFactory"
+         ],
+         "arc_manager" : [
+diff --git a/services/ui/public/interfaces/ime/BUILD.gn b/services/ui/public/interfaces/ime/BUILD.gn
+index f709bc274ed6..1b6e2eca416d 100644
+--- a/services/ui/public/interfaces/ime/BUILD.gn
++++ b/services/ui/public/interfaces/ime/BUILD.gn
+@@ -12,6 +12,7 @@ mojom("ime") {
+ 
+   sources = [
+     "ime.mojom",
++    "linux_input_method_context.mojom",
+   ]
+ 
+   public_deps = [
+diff --git a/services/ui/public/interfaces/ime/ime.typemap b/services/ui/public/interfaces/ime/ime.typemap
+index 1e764baf5d39..20655fe0aa3c 100644
+--- a/services/ui/public/interfaces/ime/ime.typemap
++++ b/services/ui/public/interfaces/ime/ime.typemap
+@@ -15,7 +15,7 @@ sources = [
+   "//services/ui/public/interfaces/ime/ime_struct_traits.cc",
+ ]
+ public_deps = [
+-  "//ui/base/ime",
++  "//ui/base/ime:ime_types",
+ ]
+ deps = [
+   "//ui/gfx/range",
+diff --git a/services/ui/public/interfaces/ime/linux_input_method_context.mojom b/services/ui/public/interfaces/ime/linux_input_method_context.mojom
+new file mode 100644
+index 000000000000..a693b75f41ec
+--- /dev/null
++++ b/services/ui/public/interfaces/ime/linux_input_method_context.mojom
+@@ -0,0 +1,51 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++module ui.mojom;
++
++import "mojo/public/mojom/base/string16.mojom";
++import "ui/events/mojo/event.mojom";
++import "ui/gfx/geometry/mojo/geometry.mojom";
++import "services/ui/public/interfaces/ime/ime.mojom";
++
++// An interface of input method context for input method frameworks on
++// GNU/Linux
++interface LinuxInputMethodContext {
++  Initialize(LinuxInputMethodContextDelegate delegate, bool is_simple);
++
++  // Dispatches the key event to an underlying IME.  Returns true if the key
++  // event is handled, otherwise false. A client must set the text input type
++  // before dispatching a key event.
++  DispatchKeyEvent(ui.mojom.Event key_event) => (bool handled);
++
++  // Tells the system IME for the cursor rect which is relative to the
++  // client window rect.
++  SetCursorLocation(gfx.mojom.Rect rect);
++
++  // Resets the context.  A client needs to call OnTextInputTypeChanged() again
++  // before calling DispatchKeyEvent().
++  Reset();
++
++  // Focuses the context.
++  Focus();
++
++  // Blurs the context.
++  Blur();
++};
++
++// An interface of callback functions called from LinuxInputMethodContext.
++interface LinuxInputMethodContextDelegate {
++  // Commits the |text| to the text input client.
++  OnCommit(mojo_base.mojom.String16 text);
++
++  // Sets the composition text to the text input client.
++  OnPreeditChanged(ui.mojom.CompositionText composition_text);
++
++  // Cleans up a composition session and makes sure that the composition text is
++  // cleared.
++  OnPreeditEnd();
++
++  // Prepares things for a new composition session.
++  OnPreeditStart();
++};
+diff --git a/ui/aura/BUILD.gn b/ui/aura/BUILD.gn
+index 38afc9cd5dab..66cd2ed1d1f9 100644
+--- a/ui/aura/BUILD.gn
++++ b/ui/aura/BUILD.gn
+@@ -48,6 +48,9 @@ jumbo_component("aura") {
+     "mus/focus_synchronizer_observer.h",
+     "mus/in_flight_change.h",
+     "mus/input_method_mus.h",
++    "mus/linux_input_method_context_delegate_impl.h",
++    "mus/linux_input_method_context_factory_mus.h",
++    "mus/linux_input_method_context_mus.h",
+     "mus/mus_context_factory.h",
+     "mus/mus_mouse_location_updater.h",
+     "mus/mus_types.h",
+@@ -112,6 +115,9 @@ jumbo_component("aura") {
+     "mus/focus_synchronizer.cc",
+     "mus/in_flight_change.cc",
+     "mus/input_method_mus.cc",
++    "mus/linux_input_method_context_delegate_impl.cc",
++    "mus/linux_input_method_context_factory_mus.cc",
++    "mus/linux_input_method_context_mus.cc",
+     "mus/mus_context_factory.cc",
+     "mus/mus_mouse_location_updater.cc",
+     "mus/os_exchange_data_provider_mus.cc",
+@@ -226,6 +232,7 @@ jumbo_static_library("test_support") {
+     "test/mus/change_completion_waiter.cc",
+     "test/mus/change_completion_waiter.h",
+     "test/mus/input_method_mus_test_api.h",
++    "test/mus/linux_input_method_context_mus_test_api.h",
+     "test/mus/test_window_manager_client.cc",
+     "test/mus/test_window_manager_client.h",
+     "test/mus/test_window_manager_delegate.cc",
+@@ -349,6 +356,7 @@ test("aura_unittests") {
+     "mus/drag_drop_controller_mus_unittest.cc",
+     "mus/focus_synchronizer_unittest.cc",
+     "mus/input_method_mus_unittest.cc",
++    "mus/linux_input_method_context_mus_unittest.cc",
+     "mus/os_exchange_data_provider_mus_unittest.cc",
+     "mus/property_converter_unittest.cc",
+     "mus/system_input_injector_mus_unittest.cc",
+diff --git a/ui/aura/mus/linux_input_method_context_delegate_impl.cc b/ui/aura/mus/linux_input_method_context_delegate_impl.cc
+new file mode 100644
+index 000000000000..7ad82bdb1508
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_delegate_impl.cc
+@@ -0,0 +1,48 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/aura/mus/linux_input_method_context_delegate_impl.h"
++
++#include "ui/base/ime/linux/linux_input_method_context.h"
++
++namespace aura {
++
++////////////////////////////////////////////////////////////////////////////////
++// InputMethodMusOzone, public:
++
++LinuxInputMethodContextDelegateImpl::LinuxInputMethodContextDelegateImpl(
++    ui::LinuxInputMethodContextDelegate* delegate)
++    : delegate_(delegate), binding_(this) {}
++
++LinuxInputMethodContextDelegateImpl::~LinuxInputMethodContextDelegateImpl() {}
++
++ui::mojom::LinuxInputMethodContextDelegatePtr
++LinuxInputMethodContextDelegateImpl::CreateInterfacePtrAndBind() {
++  ui::mojom::LinuxInputMethodContextDelegatePtr ptr;
++  binding_.Bind(mojo::MakeRequest(&ptr));
++  return ptr;
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// LinuxInputMethodContextMus, ui::mojom::LinuxInputMethodContextDelegate
++// implementation:
++
++void LinuxInputMethodContextDelegateImpl::OnCommit(const base::string16& text) {
++  delegate_->OnCommit(text);
++}
++
++void LinuxInputMethodContextDelegateImpl::OnPreeditChanged(
++    const ui::CompositionText& composition_text) {
++  delegate_->OnPreeditChanged(composition_text);
++}
++
++void LinuxInputMethodContextDelegateImpl::OnPreeditEnd() {
++  delegate_->OnPreeditEnd();
++}
++
++void LinuxInputMethodContextDelegateImpl::OnPreeditStart() {
++  delegate_->OnPreeditStart();
++}
++
++}  // namespace aura
+diff --git a/ui/aura/mus/linux_input_method_context_delegate_impl.h b/ui/aura/mus/linux_input_method_context_delegate_impl.h
+new file mode 100644
+index 000000000000..d82f0a28eee8
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_delegate_impl.h
+@@ -0,0 +1,48 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_MUS_LINUX_INPUT_METHOD_DELEGATE_MUS_H_
++#define UI_AURA_MUS_LINUX_INPUT_METHOD_DELEGATE_MUS_H_
++
++#include "base/macros.h"
++#include "mojo/public/cpp/bindings/binding.h"
++#include "services/ui/public/interfaces/ime/linux_input_method_context.mojom.h"
++#include "ui/aura/aura_export.h"
++
++namespace ui {
++class LinuxInputMethodContextDelegate;
++}
++
++namespace aura {
++
++class AURA_EXPORT LinuxInputMethodContextDelegateImpl
++    : public ui::mojom::LinuxInputMethodContextDelegate {
++ public:
++  explicit LinuxInputMethodContextDelegateImpl(
++      ui::LinuxInputMethodContextDelegate* delegate);
++  ~LinuxInputMethodContextDelegateImpl() override;
++
++  ui::mojom::LinuxInputMethodContextDelegatePtr CreateInterfacePtrAndBind();
++
++  // Overridden from ui::LinuxInputMethodContextDelegate:
++  void OnCommit(const base::string16& text) override;
++  void OnPreeditChanged(const ui::CompositionText& composition_text) override;
++  void OnPreeditEnd() override;
++  void OnPreeditStart() override;
++
++ private:
++  friend class LinuxInputMethodContextMusTestApi;
++
++  // A set of callback functions.  Must not be nullptr.
++  ui::LinuxInputMethodContextDelegate* delegate_;
++
++  // Binds this object to the mojo interface.
++  mojo::Binding<ui::mojom::LinuxInputMethodContextDelegate> binding_;
++
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextDelegateImpl);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_MUS_LINUX_INPUT_METHOD_DELEGATE_MUS_H_
+diff --git a/ui/aura/mus/linux_input_method_context_factory_mus.cc b/ui/aura/mus/linux_input_method_context_factory_mus.cc
+new file mode 100644
+index 000000000000..1bca1aa83802
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_factory_mus.cc
+@@ -0,0 +1,31 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/aura/mus/linux_input_method_context_factory_mus.h"
++
++#include "services/service_manager/public/cpp/connector.h"
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++
++namespace aura {
++
++////////////////////////////////////////////////////////////////////////////////
++// LinuxInputMethodContextFactoryMus, public:
++
++LinuxInputMethodContextFactoryMus::LinuxInputMethodContextFactoryMus(
++    service_manager::Connector* connector)
++    : connector_(connector) {}
++
++LinuxInputMethodContextFactoryMus::~LinuxInputMethodContextFactoryMus() {}
++
++std::unique_ptr<ui::LinuxInputMethodContext>
++LinuxInputMethodContextFactoryMus::CreateInputMethodContext(
++    ui::LinuxInputMethodContextDelegate* delegate,
++    bool is_simple) const {
++  auto context =
++      base::MakeUnique<aura::LinuxInputMethodContextMus>(delegate, is_simple);
++  context->Init(connector_);
++  return std::move(context);
++}
++
++}  // namespace aura
+diff --git a/ui/aura/mus/linux_input_method_context_factory_mus.h b/ui/aura/mus/linux_input_method_context_factory_mus.h
+new file mode 100644
+index 000000000000..1b4b3d500155
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_factory_mus.h
+@@ -0,0 +1,36 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_FACTORY_MUS_H_
++#define UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_FACTORY_MUS_H_
++
++#include "base/macros.h"
++#include "ui/aura/aura_export.h"
++#include "ui/base/ime/linux/linux_input_method_context_factory.h"
++
++namespace service_manager {
++class Connector;
++}
++
++namespace aura {
++
++class AURA_EXPORT LinuxInputMethodContextFactoryMus
++    : public ui::LinuxInputMethodContextFactory {
++ public:
++  explicit LinuxInputMethodContextFactoryMus(service_manager::Connector* connector);
++  ~LinuxInputMethodContextFactoryMus() override;
++
++  std::unique_ptr<ui::LinuxInputMethodContext> CreateInputMethodContext(
++      ui::LinuxInputMethodContextDelegate* delegate,
++      bool is_simple) const override;
++
++ private:
++  service_manager::Connector* connector_;
++
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextFactoryMus);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_FACTORY_MUS_H_
+diff --git a/ui/aura/mus/linux_input_method_context_mus.cc b/ui/aura/mus/linux_input_method_context_mus.cc
+new file mode 100644
+index 000000000000..2d4f8aff97ed
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_mus.cc
+@@ -0,0 +1,100 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++
++#include "services/ui/public/interfaces/constants.mojom.h"
++#include "ui/aura/mus/linux_input_method_context_delegate_impl.h"
++#include "ui/base/ime/text_input_client.h"
++
++#include "base/message_loop/message_loop.h"
++
++namespace aura {
++
++////////////////////////////////////////////////////////////////////////////////
++// InputMethodMusOzone, public:
++
++LinuxInputMethodContextMus::LinuxInputMethodContextMus(
++    ui::LinuxInputMethodContextDelegate* delegate,
++    bool is_simple)
++    : delegate_(
++          std::make_unique<LinuxInputMethodContextDelegateImpl>(delegate)),
++      is_simple_(is_simple) {}
++
++LinuxInputMethodContextMus::~LinuxInputMethodContextMus() {
++  // Mus won't dispatch the next key event until the existing one is acked. We
++  // may have KeyEvents sent to IME context and awaiting the result, we need to
++  // ack them otherwise mus won't process the next event until it times out.
++  AckPendingCallbacksUnhandled();
++}
++
++void LinuxInputMethodContextMus::Init(service_manager::Connector* connector) {
++  if (connector)
++    connector->BindInterface(ui::mojom::kServiceName, &context_ptr_);
++  context_ptr_->Initialize(delegate_->CreateInterfacePtrAndBind(), is_simple_);
++  context_ = context_ptr_.get();
++}
++
++void LinuxInputMethodContextMus::DispatchKeyEvent(
++    const ui::KeyEvent& key_event,
++    std::unique_ptr<EventResultCallback> ack_callback) {
++  // IME context will notify us whether it handled the event or not by calling
++  // ProcessKeyEventCallback(), in which we will run the |ack_callback| to tell
++  // the IME if context handled the event or not.
++  pending_callbacks_.push_back(std::move(ack_callback));
++  context_->DispatchKeyEvent(
++      ui::Event::Clone(key_event),
++      base::Bind(&LinuxInputMethodContextMus::DispatchKeyEventCallback,
++                 base::Unretained(this), key_event));
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// LinuxInputMethodContextMus, ui::LinuxInputMethodContext implementation:
++
++bool LinuxInputMethodContextMus::DispatchKeyEvent(
++    const ui::KeyEvent& key_event) {
++  DispatchKeyEvent(key_event, nullptr);
++  return false;
++}
++
++void LinuxInputMethodContextMus::SetCursorLocation(const gfx::Rect& rect) {
++  context_->SetCursorLocation(rect);
++}
++
++void LinuxInputMethodContextMus::Reset() {
++  context_->Reset();
++}
++
++void LinuxInputMethodContextMus::Focus() {
++  context_->Focus();
++}
++
++void LinuxInputMethodContextMus::Blur() {
++  context_->Blur();
++}
++
++void LinuxInputMethodContextMus::AckPendingCallbacksUnhandled() {
++  for (auto& callback_ptr : pending_callbacks_) {
++    if (callback_ptr)
++      std::move(*callback_ptr).Run(false);
++  }
++  pending_callbacks_.clear();
++}
++
++void LinuxInputMethodContextMus::DispatchKeyEventCallback(
++    const ui::KeyEvent& event,
++    bool handled) {
++  DCHECK(!pending_callbacks_.empty());
++  std::unique_ptr<EventResultCallback> ack_callback =
++      std::move(pending_callbacks_.front());
++  pending_callbacks_.pop_front();
++
++  // |ack_callback| can be null if the standard form of DispatchKeyEvent() is
++  // called instead of the version which provides a callback. In mus+ash we
++  // use the version with callback, but some unittests use the standard form.
++  if (ack_callback)
++    std::move(*ack_callback).Run(handled);
++}
++
++}  // namespace aura
+diff --git a/ui/aura/mus/linux_input_method_context_mus.h b/ui/aura/mus/linux_input_method_context_mus.h
+new file mode 100644
+index 000000000000..4eba37c1460e
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_mus.h
+@@ -0,0 +1,70 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_H_
++#define UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_H_
++
++#include "base/containers/circular_deque.h"
++#include "base/macros.h"
++#include "mojo/public/cpp/bindings/binding.h"
++#include "services/service_manager/public/cpp/connector.h"
++#include "services/ui/public/interfaces/ime/linux_input_method_context.mojom.h"
++#include "ui/aura/aura_export.h"
++#include "ui/base/ime/linux/linux_input_method_context.h"
++
++namespace aura {
++
++class LinuxInputMethodContextDelegateImpl;
++
++class AURA_EXPORT LinuxInputMethodContextMus
++    : public ui::LinuxInputMethodContext {
++ public:
++  using EventResultCallback = base::OnceCallback<void(bool)>;
++
++  LinuxInputMethodContextMus(ui::LinuxInputMethodContextDelegate* delegate,
++                             bool is_simple);
++  ~LinuxInputMethodContextMus() override;
++
++  void Init(service_manager::Connector* connector);
++  void DispatchKeyEvent(const ui::KeyEvent& key_event,
++                        std::unique_ptr<EventResultCallback> ack_callback);
++
++  // Overridden from ui::LinuxInputMethodContext:
++  bool DispatchKeyEvent(const ui::KeyEvent& key_event) override;
++  void SetCursorLocation(const gfx::Rect& rect) override;
++  void Reset() override;
++  void Focus() override;
++  void Blur() override;
++
++ private:
++  friend class LinuxInputMethodContextMusTestApi;
++
++  // Runs all pending callbacks with UNHANDLED. This is called during shutdown,
++  // to ensure we don't leave mus waiting for an ack.
++  void AckPendingCallbacksUnhandled();
++
++  // Called when the server responds to our request to process an event.
++  void DispatchKeyEventCallback(const ui::KeyEvent& event, bool handled);
++
++  // A set of callback functions.  Must not be nullptr.
++  std::unique_ptr<LinuxInputMethodContextDelegateImpl> delegate_;
++  bool is_simple_;
++
++  // LinuxInputMethodContext interface.
++  ui::mojom::LinuxInputMethodContextPtr context_ptr_;
++  // Typically this is the same as |context_ptr_|, but it may be mocked
++  // in tests.
++  ui::mojom::LinuxInputMethodContext* context_ = nullptr;
++
++  // Callbacks supplied to DispatchKeyEvent() are added here while awaiting
++  // the response from the server. These are removed when the response is
++  // received (ProcessKeyEventCallback()).
++  base::circular_deque<std::unique_ptr<EventResultCallback>> pending_callbacks_;
++
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextMus);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_H_
+diff --git a/ui/aura/mus/linux_input_method_context_mus_unittest.cc b/ui/aura/mus/linux_input_method_context_mus_unittest.cc
+new file mode 100644
+index 000000000000..fcd4e5a969c5
+--- /dev/null
++++ b/ui/aura/mus/linux_input_method_context_mus_unittest.cc
+@@ -0,0 +1,268 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "mojo/public/cpp/bindings/binding.h"
++#include "services/ui/public/interfaces/ime/linux_input_method_context.mojom.h"
++#include "ui/aura/test/aura_test_base.h"
++#include "ui/aura/test/mus/linux_input_method_context_mus_test_api.h"
++#include "ui/events/event.h"
++
++namespace aura {
++
++class TestInputMethodContext : public ui::mojom::LinuxInputMethodContext {
++ public:
++  TestInputMethodContext(ui::mojom::LinuxInputMethodContextRequest request)
++      : binding_(this, std::move(request)) {}
++
++  void Initialize(ui::mojom::LinuxInputMethodContextDelegatePtr delegate,
++                  bool is_simple) override {}
++  void DispatchKeyEvent(std::unique_ptr<ui::Event> key_event,
++                        DispatchKeyEventCallback callback) override {
++    was_dispatch_key_event_called_ = true;
++    const bool handled = false;
++    std::move(callback).Run(handled);
++  }
++  void SetCursorLocation(const gfx::Rect& rect) override {
++    was_set_cursor_location_called_ = true;
++  }
++  void Reset() override { was_reset_called_ = true; }
++  void Focus() override { was_focus_called_ = true; }
++  void Blur() override { was_blur_called_ = true; }
++
++  bool was_dispatch_key_event_called() {
++    return was_dispatch_key_event_called_;
++  }
++
++  bool was_set_cursor_location_called() {
++    return was_set_cursor_location_called_;
++  }
++
++  bool was_reset_called() { return was_reset_called_; }
++
++  bool was_focus_called() { return was_focus_called_; }
++
++  bool was_blur_called() { return was_blur_called_; }
++
++ private:
++  mojo::Binding<ui::mojom::LinuxInputMethodContext> binding_;
++
++  bool was_dispatch_key_event_called_ = false;
++  bool was_set_cursor_location_called_ = false;
++  bool was_reset_called_ = false;
++  bool was_focus_called_ = false;
++  bool was_blur_called_ = false;
++
++  DISALLOW_COPY_AND_ASSIGN(TestInputMethodContext);
++};
++
++class LinuxInputMethodContextMusTest : public test::AuraTestBaseMus {
++ public:
++  LinuxInputMethodContextMusTest() {}
++  ~LinuxInputMethodContextMusTest() override {}
++
++  // AuraTestBase:
++  void SetUp() override {
++    AuraTestBaseMus::SetUp();
++
++    input_method_context_request_ =
++        mojo::MakeRequest(&input_method_context_ptr_);
++    input_method_context_ = base::MakeUnique<TestInputMethodContext>(
++        std::move(input_method_context_request_));
++
++    input_method_context_mus_ =
++        std::make_unique<LinuxInputMethodContextMus>(nullptr, true);
++
++    LinuxInputMethodContextMusTestApi::SetInputMethodContext(
++        input_method_context_mus_.get(), input_method_context_ptr_.get());
++  }
++
++ protected:
++  ui::mojom::LinuxInputMethodContextPtr input_method_context_ptr_;
++  ui::mojom::LinuxInputMethodContextRequest input_method_context_request_;
++
++  std::unique_ptr<TestInputMethodContext> input_method_context_;
++  std::unique_ptr<LinuxInputMethodContextMus> input_method_context_mus_;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextMusTest);
++};
++
++class TestInputMethodContextDelegate
++    : public ui::LinuxInputMethodContextDelegate {
++ public:
++  TestInputMethodContextDelegate() {}
++
++  void OnCommit(const base::string16& text) override {
++    was_on_commit_called_ = true;
++  }
++  void OnPreeditChanged(const ui::CompositionText& composition_text) override {
++    was_on_preedit_changed_called_ = true;
++  }
++  void OnPreeditEnd() override { was_on_preedit_end_called_ = true; }
++  void OnPreeditStart() override { was_on_preedit_start_called_ = true; }
++  bool was_on_commit_called() { return was_on_commit_called_; }
++  bool was_on_preedit_changed_called() {
++    return was_on_preedit_changed_called_;
++  }
++  bool was_on_preedit_end_called() { return was_on_preedit_end_called_; }
++  bool was_on_preedit_start_called() { return was_on_preedit_start_called_; }
++
++ private:
++  bool was_on_commit_called_ = false;
++  bool was_on_preedit_changed_called_ = false;
++  bool was_on_preedit_end_called_ = false;
++  bool was_on_preedit_start_called_ = false;
++
++  DISALLOW_COPY_AND_ASSIGN(TestInputMethodContextDelegate);
++};
++
++class TestInputMethodContextForDelegate
++    : public ui::mojom::LinuxInputMethodContext {
++ public:
++  TestInputMethodContextForDelegate(
++      ui::mojom::LinuxInputMethodContextRequest request)
++      : binding_(this, std::move(request)) {}
++
++  void Initialize(ui::mojom::LinuxInputMethodContextDelegatePtr delegate,
++                  bool is_simple) override {
++    delegate_ = std::move(delegate);
++  }
++
++  void DispatchKeyEvent(std::unique_ptr<ui::Event> key_event,
++                        DispatchKeyEventCallback callback) override {
++    const bool handled = false;
++    std::move(callback).Run(handled);
++  }
++  void SetCursorLocation(const gfx::Rect& rect) override {}
++  void Reset() override {}
++  void Focus() override {}
++  void Blur() override {}
++  void CallOnCommit() { delegate_->OnCommit(base::string16()); }
++  void CallOnPreeditChanged() {
++    ui::CompositionText composition_text;
++    delegate_->OnPreeditChanged(composition_text);
++  }
++  void CallOnPreeditEnd() { delegate_->OnPreeditEnd(); }
++  void CallOnPreeditStart() { delegate_->OnPreeditStart(); }
++
++ private:
++  mojo::Binding<ui::mojom::LinuxInputMethodContext> binding_;
++
++  ui::mojom::LinuxInputMethodContextDelegatePtr delegate_;
++
++  DISALLOW_COPY_AND_ASSIGN(TestInputMethodContextForDelegate);
++};
++
++class LinuxInputMethodContextDelegateMusTest : public test::AuraTestBaseMus {
++ public:
++  LinuxInputMethodContextDelegateMusTest() {}
++  ~LinuxInputMethodContextDelegateMusTest() override {}
++
++  // AuraTestBase:
++  void SetUp() override {
++    AuraTestBaseMus::SetUp();
++
++    input_method_context_request_ =
++        mojo::MakeRequest(&input_method_context_ptr_);
++    input_method_context_ = base::MakeUnique<TestInputMethodContextForDelegate>(
++        std::move(input_method_context_request_));
++
++    input_method_context_delegate_ =
++        std::make_unique<TestInputMethodContextDelegate>();
++    input_method_context_mus_ = std::make_unique<LinuxInputMethodContextMus>(
++        input_method_context_delegate_.get(), true);
++
++    LinuxInputMethodContextMusTestApi::SetInputMethodContextAndDelegate(
++        input_method_context_mus_.get(), input_method_context_ptr_.get());
++    RunAllPendingInMessageLoop();
++  }
++
++ protected:
++  ui::mojom::LinuxInputMethodContextPtr input_method_context_ptr_;
++  ui::mojom::LinuxInputMethodContextRequest input_method_context_request_;
++
++  std::unique_ptr<TestInputMethodContextDelegate>
++      input_method_context_delegate_;
++  std::unique_ptr<TestInputMethodContextForDelegate> input_method_context_;
++  std::unique_ptr<LinuxInputMethodContextMus> input_method_context_mus_;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(LinuxInputMethodContextDelegateMusTest);
++};
++
++void RunDispatchKeyEventCallback(bool* was_run, bool result) {
++  *was_run = true;
++}
++
++TEST_F(LinuxInputMethodContextMusTest, DispatchKeyEvent) {
++  ui::KeyEvent key_event('A', ui::VKEY_A, 0);
++  input_method_context_mus_->DispatchKeyEvent(key_event);
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_->was_dispatch_key_event_called());
++}
++
++TEST_F(LinuxInputMethodContextMusTest, DispatchKeyEventCallback) {
++  bool was_event_result_callback_run = false;
++  std::unique_ptr<LinuxInputMethodContextMus::EventResultCallback> callback =
++      std::make_unique<LinuxInputMethodContextMus::EventResultCallback>(
++          base::Bind(&RunDispatchKeyEventCallback,
++                     &was_event_result_callback_run));
++
++  ui::KeyEvent key_event('A', ui::VKEY_A, 0);
++  input_method_context_mus_->DispatchKeyEvent(key_event, std::move(callback));
++  EXPECT_FALSE(was_event_result_callback_run);
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_->was_dispatch_key_event_called());
++  EXPECT_TRUE(was_event_result_callback_run);
++}
++
++TEST_F(LinuxInputMethodContextMusTest, SetCursorLocation) {
++  input_method_context_mus_->SetCursorLocation(gfx::Rect());
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_->was_set_cursor_location_called());
++}
++
++TEST_F(LinuxInputMethodContextMusTest, Reset) {
++  input_method_context_mus_->Reset();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_->was_reset_called());
++}
++
++TEST_F(LinuxInputMethodContextMusTest, Focus) {
++  input_method_context_mus_->Focus();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_->was_focus_called());
++}
++
++TEST_F(LinuxInputMethodContextMusTest, Blur) {
++  input_method_context_mus_->Blur();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_->was_blur_called());
++}
++
++TEST_F(LinuxInputMethodContextDelegateMusTest, OnCommit) {
++  input_method_context_->CallOnCommit();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_delegate_->was_on_commit_called());
++}
++
++TEST_F(LinuxInputMethodContextDelegateMusTest, OnPreeditChanged) {
++  input_method_context_->CallOnPreeditChanged();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_delegate_->was_on_preedit_changed_called());
++}
++
++TEST_F(LinuxInputMethodContextDelegateMusTest, OnPreeditEnd) {
++  input_method_context_->CallOnPreeditEnd();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_delegate_->was_on_preedit_end_called());
++}
++
++TEST_F(LinuxInputMethodContextDelegateMusTest, OnPreeditStart) {
++  input_method_context_->CallOnPreeditStart();
++  RunAllPendingInMessageLoop();
++  EXPECT_TRUE(input_method_context_delegate_->was_on_preedit_start_called());
++}
++
++}  // namespace aura
+diff --git a/ui/aura/test/mus/linux_input_method_context_mus_test_api.h b/ui/aura/test/mus/linux_input_method_context_mus_test_api.h
+new file mode 100644
+index 000000000000..f20e1cc94383
+--- /dev/null
++++ b/ui/aura/test/mus/linux_input_method_context_mus_test_api.h
+@@ -0,0 +1,36 @@
++// Copyright 2017 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef UI_AURA_TEST_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_TEST_API_H_
++#define UI_AURA_TEST_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_TEST_API_H_
++
++#include "base/macros.h"
++#include "ui/aura/mus/linux_input_method_context_delegate_impl.h"
++#include "ui/aura/mus/linux_input_method_context_mus.h"
++
++namespace aura {
++
++class LinuxInputMethodContextMusTestApi {
++ public:
++  static void SetInputMethodContext(
++      LinuxInputMethodContextMus* context_mus,
++      ui::mojom::LinuxInputMethodContext* context) {
++    context_mus->context_ = context;
++  }
++
++  static void SetInputMethodContextAndDelegate(
++      LinuxInputMethodContextMus* context_mus,
++      ui::mojom::LinuxInputMethodContext* context) {
++    context_mus->context_ = context;
++    context->Initialize(context_mus->delegate_->CreateInterfacePtrAndBind(),
++                        true);
++  }
++
++ private:
++  DISALLOW_IMPLICIT_CONSTRUCTORS(LinuxInputMethodContextMusTestApi);
++};
++
++}  // namespace aura
++
++#endif  // UI_AURA_TEST_MUS_LINUX_INPUT_METHOD_CONTEXT_MUS_TEST_API_H_
+diff --git a/ui/base/ime/BUILD.gn b/ui/base/ime/BUILD.gn
+index a8a36ead5f33..00289fc0708f 100644
+--- a/ui/base/ime/BUILD.gn
++++ b/ui/base/ime/BUILD.gn
+@@ -15,11 +15,26 @@ source_set("text_input_types") {
+   ]
+ }
+ 
+-jumbo_component("ime") {
+-  output_name = "ui_base_ime"
++jumbo_component("ime_types") {
++  output_name = "ui_base_ime_types"
+   sources = [
+     "candidate_window.cc",
+     "candidate_window.h",
++    "composition_text.cc",
++    "composition_text.h",
++    "ime_text_span.cc",
++    "ime_text_span.h",
++  ]
++
++  public_deps = [
++    ":text_input_types",
++    "//skia",
++  ]
++}
++
++jumbo_component("ime") {
++  output_name = "ui_base_ime"
++  sources = [
+     "chromeos/character_composer.cc",
+     "chromeos/character_composer.h",
+     "chromeos/component_extension_ime_manager.cc",
+@@ -50,14 +65,10 @@ jumbo_component("ime") {
+     "chromeos/mock_ime_candidate_window_handler.h",
+     "chromeos/mock_ime_engine_handler.cc",
+     "chromeos/mock_ime_engine_handler.h",
+-    "composition_text.cc",
+-    "composition_text.h",
+     "ime_bridge.cc",
+     "ime_bridge.h",
+     "ime_engine_handler_interface.h",
+     "ime_input_context_handler_interface.h",
+-    "ime_text_span.cc",
+-    "ime_text_span.h",
+     "infolist_entry.cc",
+     "infolist_entry.h",
+     "input_method.h",
+@@ -121,8 +132,7 @@ jumbo_component("ime") {
+   ]
+ 
+   public_deps = [
+-    ":text_input_types",
+-    "//skia",
++    ":ime_types",
+   ]
+ 
+   if (!use_aura || is_chromeos || (!is_linux && !use_ozone)) {
+-- 
+2.11.0
+
