@@ -12,6 +12,7 @@ SRC_URI += " \
  file://ime-support/0003-Add-text-input-unstable-v1-protocol-to-wayland-proto.patch \
  file://ime-support/0004-Ozone-Wayland-IME-integration.patch \
  file://ime-support/0005-IME-for-Mus-Add-ui-InputMethodAuraLinux-logic-to-ime.patch \
+ file://0001-ozone-wayland-Explicitly-release-capture-of-destroye.patch \
  file://0001-Fix-kiosk-and-start-maximized-modes-in-AGL.patch \
  file://0001-Use-namespace-identifier-to-avoid-mis-declaration.patch \
  file://0001-Use-constexpr-needed-for-in-class-initialization.patch \
