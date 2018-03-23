@@ -1,36 +1,41 @@
-From bb92f6964619eb7de5fc27de326f0697ce8030fe Mon Sep 17 00:00:00 2001
+From 14c7a978fb6366397291f8da7f8fd6f1a6957a96 Mon Sep 17 00:00:00 2001
 From: Maksim Sisov <msisov@igalia.com>
-Date: Wed, 7 Feb 2018 16:16:13 +0200
-Subject: [PATCH] Use SK_ARM_HAS_NEON guard in skia for float instructions.
+Date: Fri, 23 Mar 2018 10:42:02 +0200
+Subject: [PATCH] Use SK_ARM_HAS_NEON guard in skia for float instructions
 
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
 ---
- src/jumper/SkJumper_stages.cpp | 6 ++++--
- 1 file changed, 4 insertions(+), 2 deletions(-)
+ src/opts/SkRasterPipeline_opts.h | 10 ++--------
+ 1 file changed, 2 insertions(+), 8 deletions(-)
 
-diff --git a/src/jumper/SkJumper_stages.cpp b/src/jumper/SkJumper_stages.cpp
-index a9e662fb8d..f1ca8d0cac 100644
---- a/src/jumper/SkJumper_stages.cpp
-+++ b/src/jumper/SkJumper_stages.cpp
-@@ -666,7 +666,8 @@ SI F approx_powf(F x, F y) {
+diff --git a/src/opts/SkRasterPipeline_opts.h b/src/opts/SkRasterPipeline_opts.h
+index 73624d1b02..8859498c93 100644
+--- a/src/opts/SkRasterPipeline_opts.h
++++ b/src/opts/SkRasterPipeline_opts.h
+@@ -653,10 +653,7 @@ SI F approx_powf(F x, F y) {
  }
  
  SI F from_half(U16 h) {
 -#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
-+#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3) && \
-+        defined(SK_ARM_HAS_NEON)  // Temporary workaround for some Google3 builds.
-     return vcvt_f32_f16(h);
+-    return vcvt_f32_f16(h);
+-
+-#elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
++#if defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+     return _mm256_cvtph_ps(h);
  
- #elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
-@@ -686,7 +687,8 @@ SI F from_half(U16 h) {
+ #else
+@@ -673,10 +670,7 @@ SI F from_half(U16 h) {
  }
  
  SI U16 to_half(F f) {
 -#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
-+#if defined(__aarch64__) && !defined(SK_BUILD_FOR_GOOGLE3) && \
-+        defined(SK_ARM_HAS_NEON)  // Temporary workaround for some Google3 builds.
-     return vcvt_f16_f32(f);
+-    return vcvt_f16_f32(f);
+-
+-#elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
++#if defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+     return _mm256_cvtps_ph(f, _MM_FROUND_CUR_DIRECTION);
  
- #elif defined(JUMPER_IS_HSW) || defined(JUMPER_IS_AVX512)
+ #else
 -- 
 2.11.0
 

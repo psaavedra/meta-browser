@@ -1,0 +1,30 @@
+From aa73bf241e8805f9457206359f97c692468f2d44 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Fri, 23 Mar 2018 11:19:01 +0200
+Subject: [PATCH] GCC use Wformat for openh264
+
+cc1plus: error: -Wformat-security ignored without -Wformat [-Werror=format-security]
+cc1plus: warning: unrecognized command line option '-Wno-header-hygiene'
+cc1plus: some warnings being treated as errors
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+ third_party/openh264/BUILD.gn | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/third_party/openh264/BUILD.gn b/third_party/openh264/BUILD.gn
+index 7b22cb473bdf..7edf5720752b 100644
+--- a/third_party/openh264/BUILD.gn
++++ b/third_party/openh264/BUILD.gn
+@@ -23,7 +23,7 @@ config("config") {
+   # GCC and clang flags. MSVS (is_win && !is_clang) does not use cflags.
+   if (!is_win || is_clang) {
+     cflags += [
+-      "-Wno-format",
++      "-Wformat",
+       "-Wno-header-hygiene",
+       "-Wno-unused-function",
+       "-Wno-unused-value",
+-- 
+2.11.0
+

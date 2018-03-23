@@ -1,0 +1,41 @@
+From 7ff79a66dda7e7c88f2bcca6bc964875725a655a Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Fri, 23 Mar 2018 12:47:22 +0200
+Subject: [PATCH] GCC: fix 'size_t' does not name a type
+
+Fixes an error:
+third_party/angle/src/libGLESv2/proc_table.h:21:8: error: 'size_t' does not name a type
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+ src/libGLESv2/proc_table.h           | 2 +-
+ src/libGLESv2/proc_table_autogen.cpp | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/libGLESv2/proc_table.h b/src/libGLESv2/proc_table.h
+index f718291be..47de6e1cb 100644
+--- a/src/libGLESv2/proc_table.h
++++ b/src/libGLESv2/proc_table.h
+@@ -18,7 +18,7 @@ namespace egl
+ using ProcEntry = std::pair<const char *, __eglMustCastToProperFunctionPointerType>;
+ 
+ extern ProcEntry g_procTable[];
+-extern size_t g_numProcs;
++extern uint32_t g_numProcs;
+ }  // namespace egl
+ 
+ #endif  // LIBGLESV2_PROC_TABLE_H_
+diff --git a/src/libGLESv2/proc_table_autogen.cpp b/src/libGLESv2/proc_table_autogen.cpp
+index fb1967e96..a3663cacd 100644
+--- a/src/libGLESv2/proc_table_autogen.cpp
++++ b/src/libGLESv2/proc_table_autogen.cpp
+@@ -647,5 +647,5 @@ ProcEntry g_procTable[] = {
+     {"glWaitSync", P(gl::WaitSync)},
+     {"glWeightPointerOES", P(gl::WeightPointerOES)}};
+ 
+-size_t g_numProcs = 617;
++uint32_t g_numProcs = 617;
+ }  // namespace egl
+-- 
+2.11.0
+
