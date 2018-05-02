@@ -1,0 +1,417 @@
+From b3689800c2ce0b34a7c7a6d2f016687d90b3a611 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Mon, 30 Apr 2018 17:10:30 +0300
+Subject: [PATCH] third_party: Make it possible to build chromium with system
+ wayland
+
+This patch makes it possible to use system wayland libraries when
+building Chromium with Wayland support. By default, the wayland
+libraries in the //third_party are used.
+---
+ third_party/wayland-protocols/BUILD.gn |  42 ++++---
+ third_party/wayland.gni                |   9 ++
+ third_party/wayland/BUILD.gn           | 200 ++++++++++++++++++---------------
+ 3 files changed, 146 insertions(+), 105 deletions(-)
+ create mode 100644 third_party/wayland.gni
+
+diff --git a/third_party/wayland-protocols/BUILD.gn b/third_party/wayland-protocols/BUILD.gn
+index 13e3115d5310..f891d88ede60 100644
+--- a/third_party/wayland-protocols/BUILD.gn
++++ b/third_party/wayland-protocols/BUILD.gn
+@@ -1,6 +1,8 @@
+ # Copyright 2015 The Chromium Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
++import("//build/config/linux/pkg_config.gni")
++import("//third_party/wayland.gni")
+ 
+ config("xdg_shell_protocol_config") {
+   include_dirs = [ "include/protocol" ]
+@@ -17,7 +19,7 @@ source_set("xdg_shell_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -38,7 +40,7 @@ source_set("linux_dmabuf_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -59,7 +61,7 @@ source_set("viewporter_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -80,7 +82,7 @@ source_set("presentation_time_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -101,7 +103,7 @@ source_set("vsync_feedback_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -122,7 +124,7 @@ source_set("secure_output_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -143,7 +145,7 @@ source_set("alpha_compositing_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -164,7 +166,7 @@ source_set("remote_shell_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -188,7 +190,7 @@ source_set("gaming_input_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -209,7 +211,7 @@ source_set("stylus_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -230,7 +232,7 @@ source_set("pointer_gestures_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -251,7 +253,7 @@ source_set("keyboard_configuration_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -272,7 +274,7 @@ source_set("stylus_tools_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -293,7 +295,7 @@ source_set("keyboard_extension_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -314,7 +316,7 @@ source_set("input_timestamps_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -335,7 +337,7 @@ source_set("text_input_protocol") {
+   ]
+ 
+   deps = [
+-    "//third_party/wayland:wayland_util",
++    ":wayland_util_include",
+   ]
+ 
+   configs -= [ "//build/config/compiler:chromium_code" ]
+@@ -343,3 +345,11 @@ source_set("text_input_protocol") {
+ 
+   public_configs = [ ":text_input_protocol_config" ]
+ }
++
++source_set("wayland_util_include") {
++  if (!use_system_libwayland) {
++    deps = [
++      "//third_party/wayland:wayland_util",
++    ]
++  }
++}
+diff --git a/third_party/wayland.gni b/third_party/wayland.gni
+new file mode 100644
+index 000000000000..d0451691b05f
+--- /dev/null
++++ b/third_party/wayland.gni
+@@ -0,0 +1,9 @@
++# Copyright 2018 The Chromium Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++declare_args() {
++  # Controls whether the build should use the version of Wayland
++  # library shipped with the system or Chromium third_party.
++  use_system_libwayland = false
++}
+diff --git a/third_party/wayland/BUILD.gn b/third_party/wayland/BUILD.gn
+index b77082766d1b..984df2d1b87d 100644
+--- a/third_party/wayland/BUILD.gn
++++ b/third_party/wayland/BUILD.gn
+@@ -1,98 +1,120 @@
+ # Copyright 2015 The Chromium Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+-
+-config("wayland_config") {
+-  include_dirs = [
+-    "include/src",
+-    "include/protocol",
+-    "src/src",
+-  ]
+-}
+-
+-static_library("wayland_util") {
+-  sources = [
+-    "src/src/wayland-util.c",
+-    "src/src/wayland-util.h",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [ "//build/config/compiler:no_chromium_code" ]
+-
+-  public_configs = [ ":wayland_config" ]
++import("//build/config/linux/pkg_config.gni")
++import("//third_party/wayland.gni")
++
++if (!use_system_libwayland) {
++  config("wayland_config") {
++    include_dirs = [
++      "include/src",
++      "include/protocol",
++      "src/src",
++    ]
++  }
++
++  static_library("wayland_util") {
++    sources = [
++      "src/src/wayland-util.c",
++      "src/src/wayland-util.h",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [ "//build/config/compiler:no_chromium_code" ]
++
++    public_configs = [ ":wayland_config" ]
++  }
++
++  static_library("wayland_private") {
++    sources = [
++      "src/src/connection.c",
++      "src/src/wayland-os.c",
++      "src/src/wayland-os.h",
++      "src/src/wayland-private.h",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [
++      "//build/config/compiler:no_chromium_code",
++      "//build/config/linux/libffi",
++      ":wayland_config",
++    ]
++  }
++
++  static_library("wayland_protocol") {
++    sources = [
++      "protocol/wayland-protocol.c",
++    ]
++
++    deps = [
++      ":wayland_util",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [ "//build/config/compiler:no_chromium_code" ]
++
++    public_configs = [ ":wayland_config" ]
++  }
++
++  static_library("wayland_server") {
++    sources = [
++      "include/protocol/wayland-server-protocol.h",
++      "src/src/event-loop.c",
++      "src/src/wayland-server.c",
++      "src/src/wayland-shm.c",
++    ]
++
++    deps = [
++      ":wayland_private",
++      ":wayland_protocol",
++      ":wayland_util",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [
++      "//build/config/compiler:no_chromium_code",
++      "//build/config/linux/libffi",
++    ]
++
++    public_configs = [ ":wayland_config" ]
++  }
++
++  static_library("wayland_client") {
++    sources = [
++      "include/protocol/wayland-client-protocol.h",
++      "src/src/wayland-client.c",
++    ]
++
++    deps = [
++      ":wayland_private",
++      ":wayland_protocol",
++      ":wayland_util",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [
++      "//build/config/compiler:no_chromium_code",
++      "//build/config/linux/libffi",
++    ]
++
++    public_configs = [ ":wayland_config" ]
++  }
+ }
+ 
+-static_library("wayland_private") {
+-  sources = [
+-    "src/src/connection.c",
+-    "src/src/wayland-os.c",
+-    "src/src/wayland-os.h",
+-    "src/src/wayland-private.h",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [
+-    "//build/config/compiler:no_chromium_code",
+-    "//build/config/linux/libffi",
+-    ":wayland_config",
+-  ]
+-}
++if (use_system_libwayland) {
++  pkg_config("wayland_client_config") {
++    packages = [ "wayland-client" ]
++  }
+ 
+-static_library("wayland_protocol") {
+-  sources = [
+-    "protocol/wayland-protocol.c",
+-  ]
++  pkg_config("wayland_server_config") {
++    packages = [ "wayland-server" ]
++  }
+ 
+-  deps = [
+-    ":wayland_util",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [ "//build/config/compiler:no_chromium_code" ]
+-
+-  public_configs = [ ":wayland_config" ]
+-}
+-
+-static_library("wayland_server") {
+-  sources = [
+-    "include/protocol/wayland-server-protocol.h",
+-    "src/src/event-loop.c",
+-    "src/src/wayland-server.c",
+-    "src/src/wayland-shm.c",
+-  ]
+-
+-  deps = [
+-    ":wayland_private",
+-    ":wayland_protocol",
+-    ":wayland_util",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [
+-    "//build/config/compiler:no_chromium_code",
+-    "//build/config/linux/libffi",
+-  ]
+-
+-  public_configs = [ ":wayland_config" ]
+-}
++  group("wayland_client") {
++    public_configs = [ ":wayland_client_config" ]
++  }
+ 
+-static_library("wayland_client") {
+-  sources = [
+-    "include/protocol/wayland-client-protocol.h",
+-    "src/src/wayland-client.c",
+-  ]
+-
+-  deps = [
+-    ":wayland_private",
+-    ":wayland_protocol",
+-    ":wayland_util",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [
+-    "//build/config/compiler:no_chromium_code",
+-    "//build/config/linux/libffi",
+-  ]
+-
+-  public_configs = [ ":wayland_config" ]
++  group("wayland_server") {
++    public_configs = [ ":wayland_server_config" ]
++  }
+ }
+-- 
+2.14.1
+

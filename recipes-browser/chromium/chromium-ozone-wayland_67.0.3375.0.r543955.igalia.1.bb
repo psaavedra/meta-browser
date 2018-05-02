@@ -9,6 +9,7 @@ SRC_URI += " \
  file://0001-GCC-use-Wformat-for-openh264.patch \
  file://0001-Use-SK_ARM_HAS_NEON-guard-in-skia-for-float-instruct.patch;patchdir=third_party/skia \
  file://0001-GCC-fix-size_t-does-not-name-a-type.patch;patchdir=third_party/angle \
+ file://0001-third_party-Make-it-possible-to-build-chromium-with-.patch \
 "
 
 REQUIRED_DISTRO_FEATURES = "wayland"
@@ -22,6 +23,7 @@ DEPENDS += "\
 GN_ARGS += "\
         enable_mus=true \
         use_ozone=true \
+        use_system_libwayland=true \
         ozone_auto_platforms=false \
         ozone_platform_headless=true \
         ozone_platform_wayland=true \
