@@ -1,0 +1,558 @@
+From b4b8f87bfff0a2fc50d99124d89006f369d0d773 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Tue, 26 Jun 2018 11:07:00 +0300
+Subject: [PATCH] [ozone/wayland/IME] Handle backspace button.
+
+This patch adds implenetation details to the delete surrounding
+text and set surrounding text methods, which are used to handle
+backspace buttons.
+
+PS using vkb and physical keyboard at the same time are prone to bugs.
+That is, when a text is typed both on the vkb and physical keyboard,
+it can suddenly disappear.
+---
+ .../ime_driver/input_method_bridge_linux.cc   |  6 ++++++
+ .../ime_driver/input_method_bridge_linux.h    |  2 ++
+ .../ime_driver/remote_text_input_client.cc    |  3 +--
+ services/ui/public/interfaces/ime/ime.mojom   |  6 ++++++
+ .../ime/linux_input_method_context.mojom      |  9 ++++++++
+ tools/clang/scripts/update.py                 |  2 +-
+ ui/aura/mus/input_method_mus.cc               | 17 ++++++++++++++-
+ ui/aura/mus/input_method_mus.h                |  2 ++
+ ...inux_input_method_context_delegate_impl.cc |  6 ++++++
+ ...linux_input_method_context_delegate_impl.h |  1 +
+ ui/aura/mus/linux_input_method_context_mus.cc |  6 ++++++
+ ui/aura/mus/linux_input_method_context_mus.h  |  2 ++
+ ui/aura/mus/text_input_client_impl.cc         |  5 +++++
+ ui/aura/mus/text_input_client_impl.h          |  1 +
+ ui/base/ime/input_method_auralinux.cc         | 21 +++++++++++++++++--
+ ui/base/ime/input_method_auralinux.h          |  4 ++++
+ .../ime/linux/fake_input_method_context.cc    |  4 ++++
+ ui/base/ime/linux/fake_input_method_context.h |  2 ++
+ .../ime/linux/linux_input_method_context.h    |  6 ++++++
+ .../wayland/wayland_input_method_context.cc   | 14 ++++++++++++-
+ .../wayland/wayland_input_method_context.h    |  3 +++
+ .../platform/wayland/zwp_text_input_wrapper.h |  9 +++++++-
+ .../wayland/zwp_text_input_wrapper_v1.cc      | 16 ++++++++++++--
+ .../wayland/zwp_text_input_wrapper_v1.h       |  3 +++
+ 24 files changed, 140 insertions(+), 10 deletions(-)
+
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+index 2599b4e90d88..edd0b8a870c2 100644
+--- a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.cc
+@@ -46,3 +46,9 @@ void InputMethodBridgeLinux::ProcessKeyEvent(std::unique_ptr<ui::Event> event,
+ void InputMethodBridgeLinux::CancelComposition() {
+   input_method_linux_->CancelComposition(client_.get());
+ }
++
++void InputMethodBridgeLinux::SetSurroundingText(
++    const base::string16& text,
++    const gfx::Range& selection_range) {
++  input_method_linux_->SetSurroundingText(text, selection_range);
++}
+diff --git a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+index 478d62f70e9f..75787298d242 100644
+--- a/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
++++ b/chrome/browser/ui/views/ime_driver/input_method_bridge_linux.h
+@@ -27,6 +27,8 @@ class InputMethodBridgeLinux : public ui::mojom::InputMethod {
+   void ProcessKeyEvent(std::unique_ptr<ui::Event> key_event,
+                        ProcessKeyEventCallback callback) override;
+   void CancelComposition() override;
++  void SetSurroundingText(const base::string16& text,
++                          const gfx::Range& selection_range) override;
+ 
+  private:
+   std::unique_ptr<RemoteTextInputClient> client_;
+diff --git a/chrome/browser/ui/views/ime_driver/remote_text_input_client.cc b/chrome/browser/ui/views/ime_driver/remote_text_input_client.cc
+index 74ef0721d79d..fc6b78e55253 100644
+--- a/chrome/browser/ui/views/ime_driver/remote_text_input_client.cc
++++ b/chrome/browser/ui/views/ime_driver/remote_text_input_client.cc
+@@ -142,8 +142,7 @@ bool RemoteTextInputClient::ChangeTextDirectionAndLayoutAlignment(
+ 
+ void RemoteTextInputClient::ExtendSelectionAndDelete(size_t before,
+                                                      size_t after) {
+-  // TODO(moshayedi): crbug.com/631527.
+-  NOTIMPLEMENTED_LOG_ONCE();
++  remote_client_->ExtendSelectionAndDelete(before, after);
+ }
+ 
+ void RemoteTextInputClient::EnsureCaretNotInRect(const gfx::Rect& rect) {
+diff --git a/services/ui/public/interfaces/ime/ime.mojom b/services/ui/public/interfaces/ime/ime.mojom
+index b4ff0a0cc170..1d96d27162f9 100644
+--- a/services/ui/public/interfaces/ime/ime.mojom
++++ b/services/ui/public/interfaces/ime/ime.mojom
+@@ -155,6 +155,10 @@ interface InputMethod {
+   ProcessKeyEvent(ui.mojom.Event key_event) => (bool handled);
+ 
+   CancelComposition();
++
++  // Sets surrounding text.
++  SetSurroundingText(mojo_base.mojom.String16 text,
++                     gfx.mojom.Range selection_range);
+ };
+ 
+ // IME drivers send updates to clients using the TextInputClient interface.
+@@ -186,6 +190,8 @@ interface TextInputClient {
+   // Dispatch a key event skipping IME. Returns true if event was consumed.
+   DispatchKeyEventPostIME(ui.mojom.Event event) => (bool stopped_propagation);
+ 
++  ExtendSelectionAndDelete(uint64 before, uint64 after);
++
+   // TODO(moshayedi): Add functions corresponding to ui::TextInputClient for:
+   // - Input context information
+   // - Document content operations
+diff --git a/services/ui/public/interfaces/ime/linux_input_method_context.mojom b/services/ui/public/interfaces/ime/linux_input_method_context.mojom
+index 04d97f6d3209..a72c2a96fc4f 100644
+--- a/services/ui/public/interfaces/ime/linux_input_method_context.mojom
++++ b/services/ui/public/interfaces/ime/linux_input_method_context.mojom
+@@ -7,6 +7,7 @@ module ui.mojom;
+ import "mojo/public/mojom/base/string16.mojom";
+ import "ui/events/mojo/event.mojom";
+ import "ui/gfx/geometry/mojo/geometry.mojom";
++import "ui/gfx/range/mojo/range.mojom";
+ import "services/ui/public/interfaces/ime/ime.mojom";
+ 
+ // An interface of input method context for input method frameworks on
+@@ -32,6 +33,10 @@ interface LinuxInputMethodContext {
+ 
+   // Blurs the context.
+   Blur();
++
++  // Sets surrounding text.
++  SetSurroundingText(mojo_base.mojom.String16 text,
++                     gfx.mojom.Range selection_range);
+ };
+ 
+ // An interface of callback functions called from LinuxInputMethodContext.
+@@ -39,6 +44,10 @@ interface LinuxInputMethodContextDelegate {
+   // Commits the |text| to the text input client.
+   OnCommit(mojo_base.mojom.String16 text);
+ 
++  // Deletes the current compositing surround text at |index| for given
++  // |length|.
++  OnDeleteSurroundingText(int32 index, uint32 length);
++
+   // Sets the composition text to the text input client.
+   OnPreeditChanged(ui.mojom.CompositionText composition_text);
+ 
+diff --git a/tools/clang/scripts/update.py b/tools/clang/scripts/update.py
+index b955c4d57c19..bfa1c8ecc916 100755
+--- a/tools/clang/scripts/update.py
++++ b/tools/clang/scripts/update.py
+@@ -27,7 +27,7 @@ import zipfile
+ # Do NOT CHANGE this if you don't know what you're doing -- see
+ # https://chromium.googlesource.com/chromium/src/+/master/docs/updating_clang.md
+ # Reverting problematic clang rolls is safe, though.
+-CLANG_REVISION = '327688'
++CLANG_REVISION = '335091'
+ 
+ use_head_revision = bool(os.environ.get('LLVM_FORCE_HEAD_REVISION', '0')
+                          in ('1', 'YES'))
+diff --git a/ui/aura/mus/input_method_mus.cc b/ui/aura/mus/input_method_mus.cc
+index bfd2555a8289..4e55625ee3f1 100644
+--- a/ui/aura/mus/input_method_mus.cc
++++ b/ui/aura/mus/input_method_mus.cc
+@@ -105,8 +105,10 @@ void InputMethodMus::OnCaretBoundsChanged(const ui::TextInputClient* client) {
+   if (!IsTextInputClientFocused(client))
+     return;
+ 
+-  if (input_method_)
++  if (input_method_) {
+     input_method_->OnCaretBoundsChanged(client->GetCaretBounds());
++    SetSurroundingText(client);
++  }
+ }
+ 
+ void InputMethodMus::CancelComposition(const ui::TextInputClient* client) {
+@@ -128,6 +130,19 @@ bool InputMethodMus::IsCandidatePopupOpen() const {
+   return false;
+ }
+ 
++void InputMethodMus::SetSurroundingText(const ui::TextInputClient* client) {
++  gfx::Range text_range, selection_range;
++  base::string16 text;
++  if (!client->GetTextRange(&text_range) ||
++      !client->GetTextFromRange(text_range, &text) ||
++      !client->GetSelectionRange(&selection_range)) {
++    return;
++  }
++
++  if (input_method_)
++    input_method_->SetSurroundingText(text, selection_range);
++}
++
+ ui::EventDispatchDetails InputMethodMus::SendKeyEventToInputMethod(
+     const ui::KeyEvent& event,
+     std::unique_ptr<EventResultCallback> ack_callback) {
+diff --git a/ui/aura/mus/input_method_mus.h b/ui/aura/mus/input_method_mus.h
+index 027c7331ef15..445720a229cd 100644
+--- a/ui/aura/mus/input_method_mus.h
++++ b/ui/aura/mus/input_method_mus.h
+@@ -53,6 +53,8 @@ class AURA_EXPORT InputMethodMus : public ui::InputMethodBase {
+   friend class InputMethodMusTestApi;
+   friend TextInputClientImpl;
+ 
++  void SetSurroundingText(const ui::TextInputClient* client);
++
+   // Called from DispatchKeyEvent() to call to the InputMethod.
+   ui::EventDispatchDetails SendKeyEventToInputMethod(
+       const ui::KeyEvent& event,
+diff --git a/ui/aura/mus/linux_input_method_context_delegate_impl.cc b/ui/aura/mus/linux_input_method_context_delegate_impl.cc
+index 7ad82bdb1508..f4e40c3f00b7 100644
+--- a/ui/aura/mus/linux_input_method_context_delegate_impl.cc
++++ b/ui/aura/mus/linux_input_method_context_delegate_impl.cc
+@@ -32,6 +32,12 @@ void LinuxInputMethodContextDelegateImpl::OnCommit(const base::string16& text) {
+   delegate_->OnCommit(text);
+ }
+ 
++void LinuxInputMethodContextDelegateImpl::OnDeleteSurroundingText(
++    int32_t index,
++    uint32_t length) {
++  delegate_->OnDeleteSurroundingText(index, length);
++}
++
+ void LinuxInputMethodContextDelegateImpl::OnPreeditChanged(
+     const ui::CompositionText& composition_text) {
+   delegate_->OnPreeditChanged(composition_text);
+diff --git a/ui/aura/mus/linux_input_method_context_delegate_impl.h b/ui/aura/mus/linux_input_method_context_delegate_impl.h
+index d82f0a28eee8..ee9aeb89fa0a 100644
+--- a/ui/aura/mus/linux_input_method_context_delegate_impl.h
++++ b/ui/aura/mus/linux_input_method_context_delegate_impl.h
+@@ -27,6 +27,7 @@ class AURA_EXPORT LinuxInputMethodContextDelegateImpl
+ 
+   // Overridden from ui::LinuxInputMethodContextDelegate:
+   void OnCommit(const base::string16& text) override;
++  void OnDeleteSurroundingText(int32_t index, uint32_t length) override;
+   void OnPreeditChanged(const ui::CompositionText& composition_text) override;
+   void OnPreeditEnd() override;
+   void OnPreeditStart() override;
+diff --git a/ui/aura/mus/linux_input_method_context_mus.cc b/ui/aura/mus/linux_input_method_context_mus.cc
+index 7ce2faf53382..588589dfbc0a 100644
+--- a/ui/aura/mus/linux_input_method_context_mus.cc
++++ b/ui/aura/mus/linux_input_method_context_mus.cc
+@@ -72,6 +72,12 @@ void LinuxInputMethodContextMus::Blur() {
+   context_->Blur();
+ }
+ 
++void LinuxInputMethodContextMus::SetSurroundingText(
++    const base::string16& text,
++    const gfx::Range& selection_range) {
++  context_->SetSurroundingText(text, selection_range);
++}
++
+ void LinuxInputMethodContextMus::AckPendingCallbacksUnhandled() {
+   for (auto& callback_ptr : pending_callbacks_) {
+     if (callback_ptr)
+diff --git a/ui/aura/mus/linux_input_method_context_mus.h b/ui/aura/mus/linux_input_method_context_mus.h
+index 80a22e333d40..3476a1cba0ea 100644
+--- a/ui/aura/mus/linux_input_method_context_mus.h
++++ b/ui/aura/mus/linux_input_method_context_mus.h
+@@ -36,6 +36,8 @@ class AURA_EXPORT LinuxInputMethodContextMus
+   void Reset() override;
+   void Focus() override;
+   void Blur() override;
++  void SetSurroundingText(const base::string16& text,
++                          const gfx::Range& selection_range) override;
+ 
+  private:
+   friend class LinuxInputMethodContextMusTestApi;
+diff --git a/ui/aura/mus/text_input_client_impl.cc b/ui/aura/mus/text_input_client_impl.cc
+index 514a69a56110..0146fe754e1e 100644
+--- a/ui/aura/mus/text_input_client_impl.cc
++++ b/ui/aura/mus/text_input_client_impl.cc
+@@ -58,4 +58,9 @@ void TextInputClientImpl::DispatchKeyEventPostIME(
+   }
+ }
+ 
++void TextInputClientImpl::ExtendSelectionAndDelete(size_t before,
++                                                   size_t after) {
++  text_input_client_->ExtendSelectionAndDelete(before, after);
++}
++
+ }  // namespace aura
+diff --git a/ui/aura/mus/text_input_client_impl.h b/ui/aura/mus/text_input_client_impl.h
+index 5f5b98d4807a..f9130d49649c 100644
+--- a/ui/aura/mus/text_input_client_impl.h
++++ b/ui/aura/mus/text_input_client_impl.h
+@@ -36,6 +36,7 @@ class TextInputClientImpl : public ui::mojom::TextInputClient {
+   void DispatchKeyEventPostIME(
+       std::unique_ptr<ui::Event> event,
+       DispatchKeyEventPostIMECallback callback) override;
++  void ExtendSelectionAndDelete(size_t before, size_t after) override;
+ 
+   ui::TextInputClient* text_input_client_;
+   mojo::Binding<ui::mojom::TextInputClient> binding_;
+diff --git a/ui/base/ime/input_method_auralinux.cc b/ui/base/ime/input_method_auralinux.cc
+index 48b8eb183da1..10d789af719a 100644
+--- a/ui/base/ime/input_method_auralinux.cc
++++ b/ui/base/ime/input_method_auralinux.cc
+@@ -101,8 +101,7 @@ ui::EventDispatchDetails InputMethodAuraLinux::DispatchKeyEvent(
+         base::BindOnce(&InputMethodAuraLinux::ProcessKeyEventByEngineDone,
+                        weak_ptr_factory_.GetWeakPtr(),
+                        base::Owned(new ui::KeyEvent(*event)),
+-                       Passed(&ack_callback), filtered,
+-                       composition_changed_,
++                       Passed(&ack_callback), filtered, composition_changed_,
+                        base::Owned(new ui::CompositionText(composition_)),
+                        base::Owned(new base::string16(result_text_)));
+     GetEngine()->ProcessKeyEvent(*event, std::move(callback));
+@@ -385,6 +384,17 @@ void InputMethodAuraLinux::OnCommit(const base::string16& text) {
+   }
+ }
+ 
++void InputMethodAuraLinux::OnDeleteSurroundingText(int32_t index,
++                                                   uint32_t length) {
++  if (!composition_.text.empty())
++    return;
++
++  if (GetTextInputClient()) {
++    uint32_t before = index >= 0 ? 0U : static_cast<uint32_t>(-1 * index);
++    GetTextInputClient()->ExtendSelectionAndDelete(before, length - before);
++  }
++}
++
+ void InputMethodAuraLinux::OnPreeditChanged(
+     const CompositionText& composition_text) {
+   if (IgnoringNonKeyInput() || IsTextInputTypeNone())
+@@ -428,6 +438,13 @@ void InputMethodAuraLinux::OnPreeditEnd() {
+   }
+ }
+ 
++void InputMethodAuraLinux::SetSurroundingText(
++    const base::string16& text,
++    const gfx::Range& selection_range) {
++  if (context_)
++    context_->SetSurroundingText(text, selection_range);
++}
++
+ // Overridden from InputMethodBase.
+ 
+ void InputMethodAuraLinux::OnWillChangeFocusedClient(
+diff --git a/ui/base/ime/input_method_auralinux.h b/ui/base/ime/input_method_auralinux.h
+index 19500a2335e4..6f877994780b 100644
+--- a/ui/base/ime/input_method_auralinux.h
++++ b/ui/base/ime/input_method_auralinux.h
+@@ -41,10 +41,14 @@ class UI_BASE_IME_EXPORT InputMethodAuraLinux
+ 
+   // Overriden from ui::LinuxInputMethodContextDelegate
+   void OnCommit(const base::string16& text) override;
++  void OnDeleteSurroundingText(int32_t index, uint32_t length) override;
+   void OnPreeditChanged(const CompositionText& composition_text) override;
+   void OnPreeditEnd() override;
+   void OnPreeditStart() override {}
+ 
++  void SetSurroundingText(const base::string16& text,
++                          const gfx::Range& selection_range);
++
+  protected:
+   // Overridden from InputMethodBase.
+   void OnWillChangeFocusedClient(TextInputClient* focused_before,
+diff --git a/ui/base/ime/linux/fake_input_method_context.cc b/ui/base/ime/linux/fake_input_method_context.cc
+index 5053aa1cbc4c..a7798968f78f 100644
+--- a/ui/base/ime/linux/fake_input_method_context.cc
++++ b/ui/base/ime/linux/fake_input_method_context.cc
+@@ -27,4 +27,8 @@ void FakeInputMethodContext::Blur() {
+ void FakeInputMethodContext::SetCursorLocation(const gfx::Rect& rect) {
+ }
+ 
++void FakeInputMethodContext::SetSurroundingText(
++    const base::string16& text,
++    const gfx::Range& selection_range) {}
++
+ }  // namespace ui
+diff --git a/ui/base/ime/linux/fake_input_method_context.h b/ui/base/ime/linux/fake_input_method_context.h
+index ec9ac7e445ae..0fd8fdf548a8 100644
+--- a/ui/base/ime/linux/fake_input_method_context.h
++++ b/ui/base/ime/linux/fake_input_method_context.h
+@@ -21,6 +21,8 @@ class FakeInputMethodContext : public LinuxInputMethodContext {
+   void Focus() override;
+   void Blur() override;
+   void SetCursorLocation(const gfx::Rect& rect) override;
++  void SetSurroundingText(const base::string16& text,
++                          const gfx::Range& selection_range) override;
+ 
+  private:
+   DISALLOW_COPY_AND_ASSIGN(FakeInputMethodContext);
+diff --git a/ui/base/ime/linux/linux_input_method_context.h b/ui/base/ime/linux/linux_input_method_context.h
+index 4611501d0629..de3beca702a6 100644
+--- a/ui/base/ime/linux/linux_input_method_context.h
++++ b/ui/base/ime/linux/linux_input_method_context.h
+@@ -42,6 +42,9 @@ class UI_BASE_IME_EXPORT LinuxInputMethodContext {
+ 
+   // Blurs the context.
+   virtual void Blur() = 0;
++
++  virtual void SetSurroundingText(const base::string16& text,
++                                  const gfx::Range& selection_range) = 0;
+ };
+ 
+ // An interface of callback functions called from LinuxInputMethodContext.
+@@ -52,6 +55,9 @@ class UI_BASE_IME_EXPORT LinuxInputMethodContextDelegate {
+   // Commits the |text| to the text input client.
+   virtual void OnCommit(const base::string16& text) = 0;
+ 
++  // Deletes the surrounding text at |index| for given |length|.
++  virtual void OnDeleteSurroundingText(int32_t index, uint32_t length) = 0;
++
+   // Sets the composition text to the text input client.
+   virtual void OnPreeditChanged(const CompositionText& composition_text) = 0;
+ 
+diff --git a/ui/ozone/platform/wayland/wayland_input_method_context.cc b/ui/ozone/platform/wayland/wayland_input_method_context.cc
+index 09e5a140c44f..6ea9d338b1da 100644
+--- a/ui/ozone/platform/wayland/wayland_input_method_context.cc
++++ b/ui/ozone/platform/wayland/wayland_input_method_context.cc
+@@ -27,7 +27,7 @@ namespace {
+ 
+ constexpr int kXkbKeycodeOffset = 8;
+ 
+-} // namespace
++}  // namespace
+ 
+ WaylandInputMethodContext::WaylandInputMethodContext(
+     WaylandConnection* connection)
+@@ -83,6 +83,13 @@ void WaylandInputMethodContext::Blur() {
+   }
+ }
+ 
++void WaylandInputMethodContext::SetSurroundingText(
++    const base::string16& text,
++    const gfx::Range& selection_range) {
++  if (text_input_)
++    text_input_->SetSurroundingText(text, selection_range);
++}
++
+ void WaylandInputMethodContext::SetCursorLocation(const gfx::Rect& rect) {
+   if (text_input_)
+     text_input_->SetCursorRect(rect);
+@@ -110,6 +117,11 @@ void WaylandInputMethodContext::OnCommitString(const std::string& text) {
+   delegate_->OnCommit(base::UTF8ToUTF16(text));
+ }
+ 
++void WaylandInputMethodContext::OnDeleteSurroundingText(int32_t index,
++                                                        uint32_t length) {
++  delegate_->OnDeleteSurroundingText(index, length);
++}
++
+ void WaylandInputMethodContext::OnKeysym(uint32_t key,
+                                          uint32_t state,
+                                          uint32_t modifiers) {
+diff --git a/ui/ozone/platform/wayland/wayland_input_method_context.h b/ui/ozone/platform/wayland/wayland_input_method_context.h
+index be06f428cc5e..95f2e1b2cb0d 100644
+--- a/ui/ozone/platform/wayland/wayland_input_method_context.h
++++ b/ui/ozone/platform/wayland/wayland_input_method_context.h
+@@ -31,10 +31,13 @@ class WaylandInputMethodContext : public ui::mojom::LinuxInputMethodContext,
+   void Reset() override;
+   void Focus() override;
+   void Blur() override;
++  void SetSurroundingText(const base::string16& text,
++                          const gfx::Range& selection_range) override;
+ 
+   // ui::ZWPTextInputWrapperClient
+   void OnPreeditString(const std::string& text, int preedit_cursor) override;
+   void OnCommitString(const std::string& text) override;
++  void OnDeleteSurroundingText(int32_t index, uint32_t length) override;
+   void OnKeysym(uint32_t key, uint32_t state, uint32_t modifiers) override;
+ 
+  private:
+diff --git a/ui/ozone/platform/wayland/zwp_text_input_wrapper.h b/ui/ozone/platform/wayland/zwp_text_input_wrapper.h
+index 5c7cac252758..2f199e4fbf00 100644
+--- a/ui/ozone/platform/wayland/zwp_text_input_wrapper.h
++++ b/ui/ozone/platform/wayland/zwp_text_input_wrapper.h
+@@ -7,9 +7,12 @@
+ 
+ #include "ui/ozone/platform/wayland/wayland_object.h"
+ 
++#include "base/strings/string16.h"
++
+ namespace gfx {
+ class Rect;
+-}
++class Range;
++}  // namespace gfx
+ 
+ namespace ui {
+ 
+@@ -23,6 +26,7 @@ class ZWPTextInputWrapperClient {
+   virtual void OnPreeditString(const std::string& text,
+                                int32_t preedit_cursor) = 0;
+   virtual void OnCommitString(const std::string& text) = 0;
++  virtual void OnDeleteSurroundingText(int32_t index, uint32_t length) = 0;
+   virtual void OnKeysym(uint32_t key, uint32_t state, uint32_t modifiers) = 0;
+ };
+ 
+@@ -43,6 +47,9 @@ class ZWPTextInputWrapper {
+   virtual void HideInputPanel() = 0;
+ 
+   virtual void SetCursorRect(const gfx::Rect& rect) = 0;
++
++  virtual void SetSurroundingText(const base::string16& text,
++                                  const gfx::Range& selection_range) = 0;
+ };
+ 
+ }  // namespace ui
+diff --git a/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc
+index 11b36e0bdedc..4a4f22da982f 100644
+--- a/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc
++++ b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.cc
+@@ -5,6 +5,9 @@
+ #include "ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h"
+ 
+ #include "base/memory/ptr_util.h"
++#include "base/strings/string16.h"
++#include "base/strings/utf_string_conversions.h"
++#include "ui/gfx/range/range.h"
+ #include "ui/ozone/platform/wayland/wayland_connection.h"
+ #include "ui/ozone/platform/wayland/wayland_window.h"
+ 
+@@ -74,6 +77,15 @@ void ZWPTextInputWrapperV1::SetCursorRect(const gfx::Rect& rect) {
+                                          rect.width(), rect.height());
+ }
+ 
++void ZWPTextInputWrapperV1::SetSurroundingText(
++    const base::string16& text,
++    const gfx::Range& selection_range) {
++  const std::string text_utf8 = base::UTF16ToUTF8(text);
++  zwp_text_input_v1_set_surrounding_text(obj_.get(), text_utf8.c_str(),
++                                         selection_range.start(),
++                                         selection_range.end());
++}
++
+ void ZWPTextInputWrapperV1::ResetInputEventState() {
+   preedit_cursor_ = -1;
+ }
+@@ -117,7 +129,6 @@ void ZWPTextInputWrapperV1::OnPreeditString(
+ 
+ void ZWPTextInputWrapperV1::OnPreeditStyling(
+     void* data,
+-
+     struct zwp_text_input_v1* text_input,
+     uint32_t index,
+     uint32_t length,
+@@ -155,7 +166,8 @@ void ZWPTextInputWrapperV1::OnDeleteSurroundingText(
+     struct zwp_text_input_v1* text_input,
+     int32_t index,
+     uint32_t length) {
+-  NOTIMPLEMENTED_LOG_ONCE();
++  ZWPTextInputWrapperV1* wti = static_cast<ZWPTextInputWrapperV1*>(data);
++  wti->client_->OnDeleteSurroundingText(index, length);
+ }
+ 
+ void ZWPTextInputWrapperV1::OnKeysym(void* data,
+diff --git a/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h
+index 41087bfa0506..96db0ac2814e 100644
+--- a/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h
++++ b/ui/ozone/platform/wayland/zwp_text_input_wrapper_v1.h
+@@ -37,6 +37,9 @@ class ZWPTextInputWrapperV1 : public ZWPTextInputWrapper {
+ 
+   void SetCursorRect(const gfx::Rect& rect) override;
+ 
++  void SetSurroundingText(const base::string16& text,
++                          const gfx::Range& selection_range) override;
++
+  private:
+   void ResetInputEventState();
+ 
+-- 
+2.17.1
+
