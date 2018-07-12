@@ -1,0 +1,27 @@
+From 5600205eec2b71b778dfa55a430e1e9ba246d552 Mon Sep 17 00:00:00 2001
+From: Julie Jeongeun Kim <jkim@igalia.com>
+Date: Thu, 12 Jul 2018 18:34:14 +0900
+Subject: [PATCH] fixup! again, [ozone/wayland/IME] Handle backspace button.
+
+Fixed compilation error.
+linux_input_method_context.h:47:46: error: 'Range' in namespace
+'gfx' does not name a type
+---
+ ui/base/ime/linux/linux_input_method_context.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ui/base/ime/linux/linux_input_method_context.h b/ui/base/ime/linux/linux_input_method_context.h
+index de3beca702a6..094c06383395 100644
+--- a/ui/base/ime/linux/linux_input_method_context.h
++++ b/ui/base/ime/linux/linux_input_method_context.h
+@@ -11,6 +11,7 @@
+ 
+ namespace gfx {
+ class Rect;
++class Range;
+ }
+ 
+ namespace ui {
+-- 
+2.14.1
+
