@@ -1,37 +1,135 @@
-From c9ac2f47050fabdfab92cfc91de498402193acba Mon Sep 17 00:00:00 2001
+From 88f92623c5354f468abf297d520e456740781625 Mon Sep 17 00:00:00 2001
 From: Maksim Sisov <msisov@igalia.com>
-Date: Fri, 23 Mar 2018 10:35:26 +0200
-Subject: [PATCH] Fix Assignment had no effect.
+Date: Fri, 3 Aug 2018 09:16:12 +0300
+Subject: [PATCH] Fix Assignment had no effect
 
-ERROR at //build/config/compiler/BUILD.gn:188:12: Assignment had no effect.
-|   inputs = []
-|            ^
-| You set the variable "inputs" here and it was unused before it went
-| out of scope.
-| See //build/config/BUILDCONFIG.gn:518:3: which caused the file to be included.
-|   "//build/config/compiler:afdo",
-|   ^-----------------------------
+The error has the following pattern:
+| ERROR at //ui/events/BUILD.gn:80:12: Assignment had no effect.
+|   friend = [ ":*" ]
+|            ^------
 
 Signed-off-by: Maksim Sisov <msisov@igalia.com>
 ---
- build/config/compiler/BUILD.gn | 4 +++-
- 1 file changed, 3 insertions(+), 1 deletion(-)
+ build/config/compiler/BUILD.gn |  1 +
+ net/dns/BUILD.gn               | 12 ++++++++----
+ net/server/BUILD.gn            |  3 ++-
+ services/ui/ws2/BUILD.gn       |  3 ++-
+ third_party/boringssl/BUILD.gn |  3 ++-
+ ui/events/BUILD.gn             |  3 ++-
+ 6 files changed, 17 insertions(+), 8 deletions(-)
 
 diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
-index adf78cbbffe9..0ded07214d71 100644
+index 7bba7dfe3db7..e78dd3efdec3 100644
 --- a/build/config/compiler/BUILD.gn
 +++ b/build/config/compiler/BUILD.gn
-@@ -185,7 +185,9 @@ config("compiler") {
-   ldflags = []
+@@ -202,6 +202,7 @@ config("compiler") {
    defines = []
    configs = []
--  inputs = []
-+  if (is_clang) {
-+    inputs = []
-+  }
+   inputs = []
++  inputs += [""]
  
    # System-specific flags. If your compiler flags apply to one of the
    # categories here, add it to the associated file to keep this shared config
+diff --git a/net/dns/BUILD.gn b/net/dns/BUILD.gn
+index 45d17557426a..2ec9aec27433 100644
+--- a/net/dns/BUILD.gn
++++ b/net/dns/BUILD.gn
+@@ -12,7 +12,8 @@ source_set("dns") {
+   visibility = [ "//net" ]
+ 
+   # Internals only intended for use inside network stack (and tests).
+-  friend = [
++  friend = []
++  friend += [
+     "//chrome/browser:test_support",
+     "//chrome/test/*",
+     "//components/certificate_transparency:unit_tests",
+@@ -159,7 +160,8 @@ source_set("host_resolver_impl") {
+ 
+   # Whitelist-only access so we can keep track of all usage external to the
+   # network stack.
+-  friend = [
++  friend = []
++  friend += [
+     "//chromeos",
+     "//components/cronet/*",
+     "//net/*",
+@@ -202,7 +204,8 @@ source_set("dns_client") {
+ 
+   # Whitelist-only access so we can keep track of all usage external to the
+   # network stack.
+-  friend = [
++  friend = []
++  friend += [
+     "//chrome/browser",
+     "//chrome/browser:test_support",
+     "//chrome/browser/chromeos",
+@@ -247,7 +250,8 @@ source_set("mdns_client") {
+ 
+   # Whitelist-only access so we can keep track of all usage external to the
+   # network stack.
+-  friend = [
++  friend = []
++  friend += [
+     "//chrome/browser",
+     "//chrome/browser:test_support",
+     "//chrome/browser/chromeos",
+diff --git a/net/server/BUILD.gn b/net/server/BUILD.gn
+index 1f3e3cb55cbc..6d84bb7a6111 100644
+--- a/net/server/BUILD.gn
++++ b/net/server/BUILD.gn
+@@ -18,7 +18,8 @@ static_library("http_server") {
+     "//content/browser",
+   ]
+ 
+-  friend = [
++  friend = []
++  friend += [
+     ":net_http_server_fuzzer",
+     ":tests",
+     "//chrome/browser/devtools",
+diff --git a/services/ui/ws2/BUILD.gn b/services/ui/ws2/BUILD.gn
+index c1ad0853157d..78f65de30e63 100644
+--- a/services/ui/ws2/BUILD.gn
++++ b/services/ui/ws2/BUILD.gn
+@@ -10,7 +10,8 @@ import("//services/service_manager/public/service_manifest.gni")
+ import("//services/service_manager/public/tools/test/service_test.gni")
+ 
+ component("lib") {
+-  friend = [
++  friend = []
++  friend += [
+     ":tests",
+     ":test_support",
+ 
+diff --git a/third_party/boringssl/BUILD.gn b/third_party/boringssl/BUILD.gn
+index d31a9f29fa9c..ecb6fb0d1868 100644
+--- a/third_party/boringssl/BUILD.gn
++++ b/third_party/boringssl/BUILD.gn
+@@ -110,7 +110,8 @@ if (is_win && !is_msan) {
+ component("boringssl") {
+   sources = all_sources
+   public = all_headers
+-  friend = [ ":*" ]
++  friend = []
++  friend += [ ":*" ]
+   deps = [
+     ":boringssl_asm",
+     "//third_party/boringssl/src/third_party/fiat:fiat_license",
+diff --git a/ui/events/BUILD.gn b/ui/events/BUILD.gn
+index 33603b8d7275..5b05ebfbd7af 100644
+--- a/ui/events/BUILD.gn
++++ b/ui/events/BUILD.gn
+@@ -77,7 +77,8 @@ static_library("dom_keyboard_layout") {
+   # so the unit tests can access the private header files.
+   # Note: Only 'events_unittests' needs access in this file, however it uses a
+   # template which generates different target names on different platforms.
+-  friend = [ ":*" ]
++  friend = []
++  friend += [ ":*" ]
+ }
+ 
+ source_set("event_constants") {
 -- 
 2.11.0
 

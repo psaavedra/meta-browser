@@ -1,6 +1,6 @@
-From 3a68dc0b045962c3c72b0cd2af16a16d47ea86c2 Mon Sep 17 00:00:00 2001
+From ac7c05c745b27f0e195bb1aa10c3a01a5ee20b26 Mon Sep 17 00:00:00 2001
 From: Maksim Sisov <msisov@igalia.com>
-Date: Tue, 13 Feb 2018 10:09:18 +0200
+Date: Mon, 6 Aug 2018 11:00:50 +0300
 Subject: [PATCH] [ozone/wayland] Explicitly release capture of destroyed
  windows.
 
@@ -10,17 +10,17 @@ This unfreezes events when menu windows are closed with touch events.
  1 file changed, 1 insertion(+)
 
 diff --git a/ui/ozone/platform/wayland/wayland_window.cc b/ui/ozone/platform/wayland/wayland_window.cc
-index 58d7b93266b8..1962f457fcf4 100644
+index 66fe2eb0efc7..ca376f810b41 100644
 --- a/ui/ozone/platform/wayland/wayland_window.cc
 +++ b/ui/ozone/platform/wayland/wayland_window.cc
-@@ -80,6 +80,7 @@ WaylandWindow::WaylandWindow(PlatformWindowDelegate* delegate,
-       state_(PlatformWindowState::PLATFORM_WINDOW_STATE_UNKNOWN) {}
+@@ -75,6 +75,7 @@ WaylandWindow::WaylandWindow(PlatformWindowDelegate* delegate,
+       state_(PlatformWindowState::PLATFORM_WINDOW_STATE_NORMAL) {}
  
  WaylandWindow::~WaylandWindow() {
 +  ReleaseCapture();
    PlatformEventSource::GetInstance()->RemovePlatformEventDispatcher(this);
    connection_->RemoveWindow(surface_.id());
-   if (parent_window_)
+ 
 -- 
 2.11.0
 

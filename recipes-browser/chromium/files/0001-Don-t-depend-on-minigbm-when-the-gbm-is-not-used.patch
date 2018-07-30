@@ -1,0 +1,68 @@
+From 02ba1a61852d32aa29ddcab6392fced87ec5d96d Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Thu, 2 Aug 2018 09:38:28 +0300
+Subject: [PATCH] Don't depend on minigbm when the gbm is not used
+
+---
+ ui/ozone/common/linux/BUILD.gn     | 17 ++++++++++++-----
+ ui/ozone/platform/wayland/BUILD.gn |  1 -
+ 2 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/ui/ozone/common/linux/BUILD.gn b/ui/ozone/common/linux/BUILD.gn
+index dc4e2586cb7f..ef98e3c7890e 100644
+--- a/ui/ozone/common/linux/BUILD.gn
++++ b/ui/ozone/common/linux/BUILD.gn
+@@ -4,6 +4,7 @@
+ 
+ import("//build/config/ui.gni")
+ import("//ui/ozone/ozone.gni")
++import("//ui/ozone/platform/wayland/wayland.gni")
+ 
+ assert(ozone_platform_gbm || ozone_platform_wayland)
+ 
+@@ -11,19 +12,25 @@ source_set("linux") {
+   sources = [
+     "drm_util_linux.cc",
+     "drm_util_linux.h",
+-    "gbm_bo_wrapper.cc",
+-    "gbm_bo_wrapper.h",
+-    "gbm_device_linux.cc",
+-    "gbm_device_linux.h",
+   ]
+ 
+   deps = [
+     "//base:base",
+     "//third_party/libdrm",
+-    "//third_party/minigbm",
+     "//ui/gfx:buffer_types",
+     "//ui/gfx:memory_buffer",
+     "//ui/gfx/geometry:geometry",
+     "//ui/ozone:ozone_base",
+   ]
++
++  if (ozone_platform_gbm || use_wayland_gbm) {
++    sources += [
++      "gbm_bo_wrapper.cc",
++      "gbm_bo_wrapper.h",
++      "gbm_device_linux.cc",
++      "gbm_device_linux.h",
++    ]
++
++    deps += [ "//third_party/minigbm" ]
++  }
+ }
+diff --git a/ui/ozone/platform/wayland/BUILD.gn b/ui/ozone/platform/wayland/BUILD.gn
+index 2fd06c612b22..4cc752543917 100644
+--- a/ui/ozone/platform/wayland/BUILD.gn
++++ b/ui/ozone/platform/wayland/BUILD.gn
+@@ -77,7 +77,6 @@ source_set("wayland") {
+     "//base",
+     "//skia",
+     "//third_party/libdrm",
+-    "//third_party/minigbm",
+     "//third_party/wayland:wayland_client",
+     "//third_party/wayland-protocols:linux_dmabuf_protocol",
+     "//third_party/wayland-protocols:xdg_shell_protocol",
+-- 
+2.11.0
+

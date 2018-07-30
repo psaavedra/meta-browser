@@ -1,0 +1,36 @@
+From d4c931c4c96e6094054161a4d27eaf8a6ddf87c3 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Fri, 3 Aug 2018 09:52:31 +0300
+Subject: [PATCH] Fix operand 1 must be an integer register
+
+LR == x30 alias is not supported.
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+ third_party/crashpad/crashpad/util/misc/capture_context_linux.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/third_party/crashpad/crashpad/util/misc/capture_context_linux.S b/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
+index 42999a90db4b..1e45788dd654 100644
+--- a/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
++++ b/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
+@@ -312,14 +312,14 @@ CAPTURECONTEXT_SYMBOL2:
+   stp x28, x29, [x0, #0x198]
+ 
+   // The original LR can't be recovered.
+-  str LR, [x0, #0x1a8]
++  str x30, [x0, #0x1a8]
+ 
+   // Use x1 as a scratch register.
+   mov x1, SP
+   str x1, [x0, #0x1b0] // context->uc_mcontext.sp
+ 
+   // The link register holds the return address for this function.
+-  str LR, [x0, #0x1b8]  // context->uc_mcontext.pc
++  str x30, [x0, #0x1b8]  // context->uc_mcontext.pc
+ 
+   // NZCV, pstate, and CPSR are synonyms.
+   mrs x1, NZCV
+-- 
+2.11.0
+
