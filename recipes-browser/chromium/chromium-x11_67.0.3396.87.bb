@@ -5,6 +5,7 @@ SRC_URI += "\
         file://0001-aarch64-Use-xzr-instead-of-x31-in-the-ASM-code.patch \
         file://0001-Ensure-all-targets-build-when-target_arch-arm-and-target_os-linux.patch \
         file://aarch64-skia-build-fix.patch \
+        file://v8-qemu-wrapper.patch \
 "
 
 REQUIRED_DISTRO_FEATURES = "x11"
