@@ -1,4 +1,4 @@
-From 88f92623c5354f468abf297d520e456740781625 Mon Sep 17 00:00:00 2001
+From f5a44f255069cc9c0ff9ee630d44262820fcbfb2 Mon Sep 17 00:00:00 2001
 From: Maksim Sisov <msisov@igalia.com>
 Date: Fri, 3 Aug 2018 09:16:12 +0300
 Subject: [PATCH] Fix Assignment had no effect
@@ -10,23 +10,23 @@ The error has the following pattern:
 
 Signed-off-by: Maksim Sisov <msisov@igalia.com>
 ---
- build/config/compiler/BUILD.gn |  1 +
+ build/config/compiler/BUILD.gn |  1 -
  net/dns/BUILD.gn               | 12 ++++++++----
  net/server/BUILD.gn            |  3 ++-
  services/ui/ws2/BUILD.gn       |  3 ++-
  third_party/boringssl/BUILD.gn |  3 ++-
  ui/events/BUILD.gn             |  3 ++-
- 6 files changed, 17 insertions(+), 8 deletions(-)
+ 6 files changed, 16 insertions(+), 9 deletions(-)
 
 diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
-index 7bba7dfe3db7..e78dd3efdec3 100644
+index 7bba7dfe3db7..668d486e745b 100644
 --- a/build/config/compiler/BUILD.gn
 +++ b/build/config/compiler/BUILD.gn
-@@ -202,6 +202,7 @@ config("compiler") {
+@@ -201,7 +201,6 @@ config("compiler") {
+   ldflags = []
    defines = []
    configs = []
-   inputs = []
-+  inputs += [""]
+-  inputs = []
  
    # System-specific flags. If your compiler flags apply to one of the
    # categories here, add it to the associated file to keep this shared config
