@@ -1,11 +1,8 @@
-# gn-native contains the GN binary used to configure Chromium.
-# It is not released separately, and each Chromium release is only expected to
-# work with the GN version provided with it.
+SUMMARY = "Meta-build system from Google"
+LICENSE = "BSD"
+LIC_FILES_CHKSUM = "file://LICENSE;md5=0fca02217a5d49a14dfe2d11837bb34d"
 
-require chromium.inc
-require chromium-upstream-tarball.inc
-
-inherit native
+DEPENDS = "python-native ninja-native"
 
 S = "${WORKDIR}/chromium-${PV}"
 
@@ -20,15 +17,15 @@ B = "${S}/out_bootstrap"
 # some of the arguments passed to it.
 BUILD_LD = "${CXX}"
 
-DEPENDS = "ninja-native"
-
 do_configure[noexec] = "1"
 
 do_compile() {
-	python ${S}/tools/gn/bootstrap/bootstrap.py --verbose --no-clean --no-rebuild
+      python ${S}/tools/gn/bootstrap/bootstrap.py --verbose --no-clean -s --no-rebuild
 }
 
 do_install() {
-	install -d ${D}${bindir}
-	install -m 0755 ${S}/out/Release/gn ${D}${bindir}/gn
+      install -d ${D}${bindir}
+      install -m 0755 ${S}/out/Release/gn ${D}${bindir}/gn
 }
+
+BBCLASSEXTEND = "native nativesdk"

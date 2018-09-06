@@ -1,0 +1,36 @@
+Upstream-status: Inappropriate [gcc bug]
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+From f55dea0f2cb31c5f1fb2b4cd84c71ec5d463d526 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Mon, 17 Sep 2018 12:13:41 +0300
+Subject: [PATCH] Do shift steps sepparately.
+
+This workarrounds the following bug in gcc:
+../../third_party/skia/third_party/skcms/src/Transform_inl.h:471:23:
+internal compiler error: in convert_move, at expr.c:299
+     v = (U16)( ((v<<8)|(v>>8)) & 0xffff );
+                ~~~~~~~^~~~~~~~
+---
+ third_party/skcms/src/Transform_inl.h | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/skcms/src/Transform_inl.h b/third_party/skcms/src/Transform_inl.h
+index 6a798437ab..9973eabb45 100644
+--- a/third_party/skcms/src/Transform_inl.h
++++ b/third_party/skcms/src/Transform_inl.h
+@@ -468,7 +468,9 @@ SI F F_from_U8(U8 v) {
+ SI F F_from_U16_BE(U16 v) {
+     // All 16-bit ICC values are big-endian, so we byte swap before converting to float.
+     // MSVC catches the "loss" of data here in the portable path, so we also make sure to mask.
+-    v = (U16)( ((v<<8)|(v>>8)) & 0xffff );
++    auto v1 = v<<8;
++    auto v2 = v>>8;
++    v = (U16)( (v1|v2) & 0xffff );
+     return cast<F>(v) * (1/65535.0f);
+ }
+ 
+-- 
+2.11.0
+

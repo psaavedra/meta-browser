@@ -1,0 +1,64 @@
+From 2f16668f81bcec075ec6642a1a425ec2334fc65a Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Mon, 17 Sep 2018 12:25:34 +0300
+Subject: [PATCH] Upstream-status: Backport
+
+Manually backported from https://crrev.com/c/1213125
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+Use x30 register instead of LR, which GCC doesn't seem to understand
+
+When tested with GCC 6, it couldn't to understand LR register.
+Thus, use x30 instead.
+
+The error this patch fixes is the following:
+
+Error: operand 1 must be an integer register -- `str LR,[x0,#0x1b8]'
+
+Test: compile for aarch64
+Change-Id: Icf1199254c6a29f72b6d2fa7940e1f33259a728b
+Reviewed-on: https://chromium-review.googlesource.com/1213125
+Commit-Queue: Maksim Sisov <msisov@igalia.com>
+Reviewed-by: Joshua Peraza <jperaza@chromium.org>
+---
+ third_party/crashpad/crashpad/util/misc/capture_context_linux.S | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/third_party/crashpad/crashpad/util/misc/capture_context_linux.S b/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
+index 42999a90db4b..f2b066b782ac 100644
+--- a/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
++++ b/third_party/crashpad/crashpad/util/misc/capture_context_linux.S
+@@ -263,10 +263,10 @@ CAPTURECONTEXT_SYMBOL2:
+   str SP, [r0, #0x54]  // context->uc_mcontext.sp
+ 
+   // The original LR can't be recovered.
+-  str LR, [r0, #0x58]  // context->uc_mcontext.lr
++  str x30, [r0, #0x58]  // context->uc_mcontext.lr
+ 
+   // The link register holds the return address for this function.
+-  str LR, [r0, #0x5c]  // context->uc_mcontext.pc
++  str x30, [r0, #0x5c]  // context->uc_mcontext.pc
+ 
+   // Use r1 as a scratch register.
+ 
+@@ -312,14 +312,14 @@ CAPTURECONTEXT_SYMBOL2:
+   stp x28, x29, [x0, #0x198]
+ 
+   // The original LR can't be recovered.
+-  str LR, [x0, #0x1a8]
++  str x30, [x0, #0x1a8]
+ 
+   // Use x1 as a scratch register.
+   mov x1, SP
+   str x1, [x0, #0x1b0] // context->uc_mcontext.sp
+ 
+   // The link register holds the return address for this function.
+-  str LR, [x0, #0x1b8]  // context->uc_mcontext.pc
++  str x30, [x0, #0x1b8]  // context->uc_mcontext.pc
+ 
+   // NZCV, pstate, and CPSR are synonyms.
+   mrs x1, NZCV
+-- 
+2.11.0
+
