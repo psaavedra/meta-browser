@@ -1,0 +1,245 @@
+Upstream status: backport
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+From 82dc7e9feedb3012b621a70cbfdeed284c295c8d Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Thu, 3 May 2018 06:28:13 +0000
+Subject: [PATCH] third_party: Make it possible to build chromium with system
+ wayland
+
+This patch makes it possible to use system wayland libraries when
+building Chromium with Wayland support. By default, the wayland
+libraries in the //third_party are used.
+
+Change-Id: I34809fe643fb4967b9ac146af17f7845697fd394
+Reviewed-on: https://chromium-review.googlesource.com/1033746
+Reviewed-by: David Reveman <reveman@chromium.org>
+Commit-Queue: Maksim Sisov <msisov@igalia.com>
+Cr-Commit-Position: refs/heads/master@{#555674}
+---
+ third_party/wayland/BUILD.gn | 201 +++++++++++++++++++++++++------------------
+ 1 file changed, 116 insertions(+), 85 deletions(-)
+
+diff --git a/third_party/wayland/BUILD.gn b/third_party/wayland/BUILD.gn
+index b77082766d1b..5b8c9a5048ea 100644
+--- a/third_party/wayland/BUILD.gn
++++ b/third_party/wayland/BUILD.gn
+@@ -1,98 +1,129 @@
+ # Copyright 2015 The Chromium Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
++import("//build/config/linux/pkg_config.gni")
+ 
+-config("wayland_config") {
+-  include_dirs = [
+-    "include/src",
+-    "include/protocol",
+-    "src/src",
+-  ]
++declare_args() {
++  # Controls whether the build should use the version of Wayland
++  # library shipped with the system or Chromium third_party.
++  use_system_libwayland = false
+ }
+ 
+-static_library("wayland_util") {
+-  sources = [
+-    "src/src/wayland-util.c",
+-    "src/src/wayland-util.h",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [ "//build/config/compiler:no_chromium_code" ]
+-
+-  public_configs = [ ":wayland_config" ]
+-}
+-
+-static_library("wayland_private") {
+-  sources = [
+-    "src/src/connection.c",
+-    "src/src/wayland-os.c",
+-    "src/src/wayland-os.h",
+-    "src/src/wayland-private.h",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [
+-    "//build/config/compiler:no_chromium_code",
+-    "//build/config/linux/libffi",
+-    ":wayland_config",
+-  ]
++if (!use_system_libwayland) {
++  config("wayland_config") {
++    include_dirs = [
++      "include/src",
++      "include/protocol",
++      "src/src",
++    ]
++  }
++
++  static_library("wayland_util") {
++    sources = [
++      "src/src/wayland-util.c",
++      "src/src/wayland-util.h",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [ "//build/config/compiler:no_chromium_code" ]
++
++    public_configs = [ ":wayland_config" ]
++  }
++
++  static_library("wayland_private") {
++    sources = [
++      "src/src/connection.c",
++      "src/src/wayland-os.c",
++      "src/src/wayland-os.h",
++      "src/src/wayland-private.h",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [
++      "//build/config/compiler:no_chromium_code",
++      "//build/config/linux/libffi",
++      ":wayland_config",
++    ]
++  }
++
++  static_library("wayland_protocol") {
++    sources = [
++      "protocol/wayland-protocol.c",
++    ]
++
++    deps = [
++      ":wayland_util",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [ "//build/config/compiler:no_chromium_code" ]
++
++    public_configs = [ ":wayland_config" ]
++  }
++
++  static_library("wayland_server") {
++    sources = [
++      "include/protocol/wayland-server-protocol.h",
++      "src/src/event-loop.c",
++      "src/src/wayland-server.c",
++      "src/src/wayland-shm.c",
++    ]
++
++    deps = [
++      ":wayland_private",
++      ":wayland_protocol",
++      ":wayland_util",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [
++      "//build/config/compiler:no_chromium_code",
++      "//build/config/linux/libffi",
++    ]
++
++    public_configs = [ ":wayland_config" ]
++  }
++
++  static_library("wayland_client") {
++    sources = [
++      "include/protocol/wayland-client-protocol.h",
++      "src/src/wayland-client.c",
++    ]
++
++    deps = [
++      ":wayland_private",
++      ":wayland_protocol",
++      ":wayland_util",
++    ]
++
++    configs -= [ "//build/config/compiler:chromium_code" ]
++    configs += [
++      "//build/config/compiler:no_chromium_code",
++      "//build/config/linux/libffi",
++    ]
++
++    public_configs = [ ":wayland_config" ]
++  }
+ }
+ 
+-static_library("wayland_protocol") {
+-  sources = [
+-    "protocol/wayland-protocol.c",
+-  ]
++if (use_system_libwayland) {
++  pkg_config("wayland_client_config") {
++    packages = [ "wayland-client" ]
++  }
+ 
+-  deps = [
+-    ":wayland_util",
+-  ]
++  pkg_config("wayland_server_config") {
++    packages = [ "wayland-server" ]
++  }
+ 
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [ "//build/config/compiler:no_chromium_code" ]
++  group("wayland_client") {
++    public_configs = [ ":wayland_client_config" ]
++  }
+ 
+-  public_configs = [ ":wayland_config" ]
+-}
+-
+-static_library("wayland_server") {
+-  sources = [
+-    "include/protocol/wayland-server-protocol.h",
+-    "src/src/event-loop.c",
+-    "src/src/wayland-server.c",
+-    "src/src/wayland-shm.c",
+-  ]
+-
+-  deps = [
+-    ":wayland_private",
+-    ":wayland_protocol",
+-    ":wayland_util",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [
+-    "//build/config/compiler:no_chromium_code",
+-    "//build/config/linux/libffi",
+-  ]
+-
+-  public_configs = [ ":wayland_config" ]
+-}
++  group("wayland_server") {
++    public_configs = [ ":wayland_server_config" ]
++  }
+ 
+-static_library("wayland_client") {
+-  sources = [
+-    "include/protocol/wayland-client-protocol.h",
+-    "src/src/wayland-client.c",
+-  ]
+-
+-  deps = [
+-    ":wayland_private",
+-    ":wayland_protocol",
+-    ":wayland_util",
+-  ]
+-
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [
+-    "//build/config/compiler:no_chromium_code",
+-    "//build/config/linux/libffi",
+-  ]
+-
+-  public_configs = [ ":wayland_config" ]
++  group("wayland_util") {
++    public_configs = [ ":wayland_client_config" ]
++  }
+ }
+-- 
+2.11.0
+

@@ -18,6 +18,7 @@ SRC_URI += " \
  file://0001-Use-constexpr-needed-for-in-class-initialization.patch \
  file://0001-Use-SK_ARM_HAS_NEON-guard-in-skia-for-float-instruct.patch;patchdir=third_party/skia \
  file://0001-Rotate-gcc-toolchain-s-build-flags.patch \ 
+ file://0001-third_party-Make-it-possible-to-build-chromium-with-.patch \
 "
 
 REQUIRED_DISTRO_FEATURES = "wayland"
@@ -36,6 +37,7 @@ GN_ARGS += "\
         ozone_platform_wayland=true \
         ozone_platform_x11=false \
         use_xkbcommon=true \
+        use_system_libwayland=true \
 "
 
 # The chromium binary must always be started with those arguments.
