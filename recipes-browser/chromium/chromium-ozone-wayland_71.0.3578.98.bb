@@ -45,6 +45,7 @@ GN_ARGS += "\
         use_system_libwayland=true \
         use_system_minigbm=true \
         use_system_libdrm=true \
+        use_wayland_gbm=false \
 "
 
 # The chromium binary must always be started with those arguments.
