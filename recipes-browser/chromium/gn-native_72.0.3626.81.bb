@@ -3,7 +3,7 @@
 # work with the GN version provided with it.
 
 require chromium.inc
-require chromium-upstream-tarball.inc
+require chromium-upstream-tarball-next.inc
 
 inherit native
 
@@ -17,7 +17,7 @@ B = "${S}/out_bootstrap"
 
 SRC_URI += "\
         file://0001-gen-Stop-passing-static-libstdc-to-the-compiler.patch \
-        file://0001-gn-bootstrap-Remove-sysroot-related-options.patch \
+        file://Reintroduce-the-ICF-flag-turn-it-on-for-bots.patch \
 "
 
 # The build system expects the linker to be invoked via the compiler. If we use
