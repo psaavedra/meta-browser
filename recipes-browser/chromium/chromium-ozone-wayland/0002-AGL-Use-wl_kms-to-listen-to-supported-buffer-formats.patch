@@ -1,0 +1,244 @@
+From 7a4eb68c34bf4a4cf8a5ecce678590ccd47597b1 Mon Sep 17 00:00:00 2001
+From: Maksim Sisov <msisov@igalia.com>
+Date: Wed, 20 Feb 2019 15:42:30 +0200
+Subject: [PATCH 2/2] AGL: Use wl_kms to listen to supported buffer formats.
+
+Renesas R-car M3 supports zwp_linux_dmabuf, but it does not announce
+supported native buffer formats.
+
+Use wl_kms::format for that purpose instead.
+
+Signed-off-by: Maksim Sisov <msisov@igalia.com>
+---
+ .../platform/wayland/wayland_buffer_manager.cc     | 49 ++++++++++++++++++----
+ ui/ozone/platform/wayland/wayland_buffer_manager.h | 13 +++++-
+ ui/ozone/platform/wayland/wayland_connection.cc    | 20 +++++++--
+ ui/ozone/platform/wayland/wayland_object.cc        |  5 +++
+ ui/ozone/platform/wayland/wayland_object.h         |  7 ++++
+ 5 files changed, 81 insertions(+), 13 deletions(-)
+
+diff --git a/ui/ozone/platform/wayland/wayland_buffer_manager.cc b/ui/ozone/platform/wayland/wayland_buffer_manager.cc
+index 393336d137..2e7cb2775b 100644
+--- a/ui/ozone/platform/wayland/wayland_buffer_manager.cc
++++ b/ui/ozone/platform/wayland/wayland_buffer_manager.cc
+@@ -7,6 +7,7 @@
+ #include <drm_fourcc.h>
+ #include <linux-dmabuf-unstable-v1-client-protocol.h>
+ #include <presentation-time-client-protocol.h>
++#include <wayland-kms-client-protocol.h>
+ 
+ #include "base/trace_event/trace_event.h"
+ #include "ui/ozone/common/linux/drm_util_linux.h"
+@@ -49,10 +50,18 @@ WaylandBufferManager::Buffer::Buffer(uint32_t id,
+     : buffer_id(id), size(buffer_size), params(zwp_params) {}
+ WaylandBufferManager::Buffer::~Buffer() = default;
+ 
+-WaylandBufferManager::WaylandBufferManager(
+-    zwp_linux_dmabuf_v1* zwp_linux_dmabuf,
+-    WaylandConnection* connection)
+-    : zwp_linux_dmabuf_(zwp_linux_dmabuf), connection_(connection) {
++WaylandBufferManager::WaylandBufferManager(WaylandConnection* connection)
++    : connection_(connection) {
++}
++
++WaylandBufferManager::~WaylandBufferManager() {
++  DCHECK(buffers_.empty());
++}
++
++void WaylandBufferManager::SetZwpLinuxDmabuf(zwp_linux_dmabuf_v1* zwp_linux_dmabuf) {
++  DCHECK(!zwp_linux_dmabuf_);
++  zwp_linux_dmabuf_.reset(zwp_linux_dmabuf);
++
+   static const zwp_linux_dmabuf_v1_listener dmabuf_listener = {
+       &WaylandBufferManager::Format, &WaylandBufferManager::Modifiers,
+   };
+@@ -61,11 +70,22 @@ WaylandBufferManager::WaylandBufferManager(
+ 
+   // A roundtrip after binding guarantees that the client has received all
+   // supported formats.
+-  wl_display_roundtrip(connection->display());
++  wl_display_roundtrip(connection_->display());
+ }
+ 
+-WaylandBufferManager::~WaylandBufferManager() {
+-  DCHECK(buffers_.empty());
++void WaylandBufferManager::SetWlKms(wl_kms* kms) {
++  DCHECK(!wl_kms_);
++  wl_kms_.reset(kms);
++
++  static const wl_kms_listener kms_listener = {
++    &WaylandBufferManager::Device, &WaylandBufferManager::KmsFormat, &WaylandBufferManager::Authenticated,
++  };
++  wl_kms_add_listener(wl_kms_.get(), &kms_listener, this);
++
++
++  // A roundtrip after binding guarantees that the client has received all
++  // supported formats.
++  wl_display_roundtrip(connection_->display());
+ }
+ 
+ bool WaylandBufferManager::CreateBuffer(base::File file,
+@@ -477,4 +497,19 @@ void WaylandBufferManager::FeedbackDiscarded(
+   NOTREACHED();
+ }
+ 
++// static
++void WaylandBufferManager::Device(void *data, struct wl_kms *wl_kms, const char *name) {
++}
++
++// static
++void WaylandBufferManager::KmsFormat(void *data, struct wl_kms *wl_kms, uint32_t format) {
++  WaylandBufferManager* self = static_cast<WaylandBufferManager*>(data);
++  if (self)
++    self->AddSupportedFourCCFormat(format);
++}
++
++// static
++void WaylandBufferManager::Authenticated(void *data, struct wl_kms *wl_kms) {
++}
++
+ }  // namespace ui
+diff --git a/ui/ozone/platform/wayland/wayland_buffer_manager.h b/ui/ozone/platform/wayland/wayland_buffer_manager.h
+index 482b98a733..31d1ba91cd 100644
+--- a/ui/ozone/platform/wayland/wayland_buffer_manager.h
++++ b/ui/ozone/platform/wayland/wayland_buffer_manager.h
+@@ -18,6 +18,7 @@
+ #include "ui/ozone/platform/wayland/wayland_object.h"
+ #include "ui/ozone/platform/wayland/wayland_util.h"
+ 
++struct wl_kms;
+ struct zwp_linux_dmabuf_v1;
+ struct zwp_linux_buffer_params_v1;
+ struct wp_presentation_feedback;
+@@ -34,8 +35,7 @@ class WaylandConnection;
+ // dmabuf buffers. Only used when GPU runs in own process.
+ class WaylandBufferManager {
+  public:
+-  WaylandBufferManager(zwp_linux_dmabuf_v1* zwp_linux_dmabuf,
+-                       WaylandConnection* connection);
++  explicit WaylandBufferManager(WaylandConnection* connection);
+   ~WaylandBufferManager();
+ 
+   std::string error_message() { return std::move(error_message_); }
+@@ -44,6 +44,9 @@ class WaylandBufferManager {
+     return supported_buffer_formats_;
+   }
+ 
++  void SetZwpLinuxDmabuf(zwp_linux_dmabuf_v1* zwp_linux_dmabuf);
++  void SetWlKms(wl_kms* kms);
++
+   // Creates a wl_buffer based on the dmabuf |file| descriptor. On error, false
+   // is returned and |error_message_| is set.
+   bool CreateBuffer(base::File file,
+@@ -194,6 +197,11 @@ class WaylandBufferManager {
+       void* data,
+       struct wp_presentation_feedback* wp_presentation_feedback);
+ 
++  // wl_kms_listener
++  static void Device(void *data, struct wl_kms *wl_kms, const char *name);
++  static void KmsFormat(void *data, struct wl_kms *wl_kms, uint32_t format);
++  static void Authenticated(void *data, struct wl_kms *wl_kms);
++
+   // Stores announced buffer formats supported by the compositor.
+   std::vector<gfx::BufferFormat> supported_buffer_formats_;
+ 
+@@ -204,6 +212,7 @@ class WaylandBufferManager {
+   std::string error_message_;
+ 
+   wl::Object<zwp_linux_dmabuf_v1> zwp_linux_dmabuf_;
++  wl::Object<wl_kms> wl_kms_;
+ 
+   // Non-owned pointer to the main connection.
+   WaylandConnection* connection_ = nullptr;
+diff --git a/ui/ozone/platform/wayland/wayland_connection.cc b/ui/ozone/platform/wayland/wayland_connection.cc
+index 6d36968c69..309ca8594e 100644
+--- a/ui/ozone/platform/wayland/wayland_connection.cc
++++ b/ui/ozone/platform/wayland/wayland_connection.cc
+@@ -28,6 +28,7 @@ namespace ui {
+ namespace {
+ constexpr uint32_t kMaxCompositorVersion = 4;
+ constexpr uint32_t kMaxLinuxDmabufVersion = 3;
++constexpr uint32_t kMaxWlKmsVersion = 2;
+ constexpr uint32_t kMaxSeatVersion = 4;
+ constexpr uint32_t kMaxShmVersion = 1;
+ constexpr uint32_t kMaxXdgShellVersion = 1;
+@@ -478,13 +479,24 @@ void WaylandConnection::Global(void* data,
+     connection->data_device_manager_.reset(
+         new WaylandDataDeviceManager(data_device_manager.release()));
+     connection->data_device_manager_->set_connection(connection);
+-  } else if (!connection->buffer_manager_ &&
+-             (strcmp(interface, "zwp_linux_dmabuf_v1") == 0)) {
++  } else if (strcmp(interface, "zwp_linux_dmabuf_v1") == 0) {
+     wl::Object<zwp_linux_dmabuf_v1> zwp_linux_dmabuf =
+         wl::Bind<zwp_linux_dmabuf_v1>(
+             registry, name, std::min(version, kMaxLinuxDmabufVersion));
+-    connection->buffer_manager_.reset(
+-        new WaylandBufferManager(zwp_linux_dmabuf.release(), connection));
++    if (!connection->buffer_manager_) {
++      connection->buffer_manager_.reset(
++          new WaylandBufferManager(connection));
++    }
++    connection->buffer_manager_->SetZwpLinuxDmabuf(zwp_linux_dmabuf.release());
++  } else if (strcmp(interface, "wl_kms") == 0) {
++    wl::Object<wl_kms> kms =
++        wl::Bind<wl_kms>(
++            registry, name, std::min(version, kMaxWlKmsVersion));
++    if (!connection->buffer_manager_) {
++      connection->buffer_manager_.reset(
++          new WaylandBufferManager(connection));
++    }
++    connection->buffer_manager_->SetWlKms(kms.release());
+   } else if (!connection->presentation_ &&
+              (strcmp(interface, "wp_presentation") == 0)) {
+     connection->presentation_ =
+diff --git a/ui/ozone/platform/wayland/wayland_object.cc b/ui/ozone/platform/wayland/wayland_object.cc
+index ed4de394dd..715f9448fa 100644
+--- a/ui/ozone/platform/wayland/wayland_object.cc
++++ b/ui/ozone/platform/wayland/wayland_object.cc
+@@ -8,6 +8,7 @@
+ #include <presentation-time-client-protocol.h>
+ #include <text-input-unstable-v1-client-protocol.h>
+ #include <wayland-client.h>
++#include <wayland-kms-client-protocol.h>
+ #include <xdg-shell-unstable-v5-client-protocol.h>
+ #include <xdg-shell-unstable-v6-client-protocol.h>
+ 
+@@ -95,6 +96,10 @@ const wl_interface* ObjectTraits<wl_keyboard>::interface =
+     &wl_keyboard_interface;
+ void (*ObjectTraits<wl_keyboard>::deleter)(wl_keyboard*) = &delete_keyboard;
+ 
++const wl_interface* ObjectTraits<wl_kms>::interface =
++    &wl_kms_interface;
++void (*ObjectTraits<wl_kms>::deleter)(wl_kms*) = &wl_kms_destroy;
++
+ const wl_interface* ObjectTraits<wl_pointer>::interface = &wl_pointer_interface;
+ void (*ObjectTraits<wl_pointer>::deleter)(wl_pointer*) = &delete_pointer;
+ 
+diff --git a/ui/ozone/platform/wayland/wayland_object.h b/ui/ozone/platform/wayland/wayland_object.h
+index 6e5e1b0824..b2414d3fa3 100644
+--- a/ui/ozone/platform/wayland/wayland_object.h
++++ b/ui/ozone/platform/wayland/wayland_object.h
+@@ -17,6 +17,7 @@ struct wl_data_device;
+ struct wl_data_offer;
+ struct wl_data_source;
+ struct wl_keyboard;
++struct wl_kms;
+ struct wl_output;
+ struct wl_pointer;
+ struct wl_registry;
+@@ -107,6 +108,12 @@ struct ObjectTraits<wl_keyboard> {
+ };
+ 
+ template <>
++struct ObjectTraits<wl_kms> {
++  static const wl_interface* interface;
++  static void (*deleter)(wl_kms*);
++};
++
++template <>
+ struct ObjectTraits<wl_pointer> {
+   static const wl_interface* interface;
+   static void (*deleter)(wl_pointer*);
+-- 
+2.11.0
+
