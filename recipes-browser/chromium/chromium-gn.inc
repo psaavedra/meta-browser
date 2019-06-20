@@ -23,6 +23,7 @@ SRC_URI += " \
         file://0005-Remove-banned-designated-initializer-list-usage-from.patch \
         file://0006-GCC-add-std-move-to-return-to-base-Optional.patch \
         file://0001-GCC-fix-another-GCC-bug-by-implementing-copy-assign-.patch \
+        file://add_internal_define_armv7ve.patch \
 "
 
 SRC_URI_append_libc-musl = "\
@@ -41,6 +42,8 @@ SRC_URI_append_libc-musl = "\
         file://musl/musl_lss-match_syscalls.patch \
         file://musl/musl_crashpad.patch \
         file://musl/musl_replace_libc_fpstate.patch \
+        file://musl/musl_fix_stack_trace.patch \
+        file://musl/musl_portable_msghdr.patch \
 "
 # This patch could be enabled for clang builds, one just needs to make it work.
 # On sumo and MACHINE="raspberrypi3", the build fails with errors such as
