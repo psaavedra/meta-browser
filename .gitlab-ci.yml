@@ -33,6 +33,7 @@ x11-qemuarm64-rocko:
     BITBAKE_TARGET: chromium-x11
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 x11-raspberrypi3-sumo:
   stage: build-x11-sumo
@@ -46,6 +47,7 @@ x11-raspberrypi3-sumo:
     BITBAKE_TARGET: chromium-x11
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 x11-intel-core-i7-64-thud:
   stage: build-x11-thud
@@ -59,6 +61,7 @@ x11-intel-core-i7-64-thud:
     BITBAKE_TARGET: chromium-x11
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 x11-intel-core2-32-thud:
   stage: build-x11-thud
@@ -72,6 +75,7 @@ x11-intel-core2-32-thud:
     BITBAKE_TARGET: chromium-x11
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 #### Wayland
 
@@ -87,6 +91,7 @@ wayland-raspberrypi3-sumo:
     BITBAKE_TARGET: chromium-ozone-wayland
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 wayland-beaglebone-sumo:
   stage: build-wayland-sumo
@@ -100,6 +105,7 @@ wayland-beaglebone-sumo:
     BITBAKE_TARGET: chromium-ozone-wayland
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 wayland-m3ulcb-thud:
   stage: build-wayland-thud
@@ -114,7 +120,9 @@ wayland-m3ulcb-thud:
   script:
     - pushd ../../sources/meta-renesas/
     - sh meta-rcar-gen3/docs/sample/copyscript/copy_evaproprietary_softwares.sh -f ~/renesas/
+    - popd
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
 
 wayland-qemuarm64-clang-thud:
   stage: build-wayland-thud
@@ -128,3 +136,4 @@ wayland-qemuarm64-clang-thud:
     BITBAKE_TARGET: chromium-ozone-wayland
   script:
     - bitbake $BITBAKE_TARGET
+    - rm -rf tmp
