@@ -155,4 +155,4 @@ count-results:
     - cd ~/yocto-chromium/
     - OK=$(ls ok_* | wc -l)
     - rm ok_*
-    - [ "${OK}" -lt "8" ] && false
+    - \[ "${OK}" -lt "8" \] && false
