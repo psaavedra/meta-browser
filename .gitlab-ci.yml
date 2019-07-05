@@ -5,6 +5,7 @@ stages:
   - build-wayland-sumo
   - build-x11-rocko
   - build-wayland-rocko
+  - count-results
 
 before_script:
   - mkdir -p ~/yocto-chromium
@@ -34,6 +35,7 @@ x11-qemuarm64-rocko:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_x11-qemuarm64-rocko
 
 x11-raspberrypi3-sumo:
   stage: build-x11-sumo
@@ -48,6 +50,7 @@ x11-raspberrypi3-sumo:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_x11-raspberrypi3-sumo
 
 x11-intel-core-i7-64-thud:
   stage: build-x11-thud
@@ -62,6 +65,7 @@ x11-intel-core-i7-64-thud:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_x11-intel-core-i7-64-thud
 
 x11-intel-core2-32-thud:
   stage: build-x11-thud
@@ -76,6 +80,7 @@ x11-intel-core2-32-thud:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_x11-intel-core2-32-thud
 
 #### Wayland
 
@@ -92,6 +97,7 @@ wayland-raspberrypi3-sumo:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_wayland-raspberrypi3-sumo
 
 wayland-beaglebone-sumo:
   stage: build-wayland-sumo
@@ -106,6 +112,7 @@ wayland-beaglebone-sumo:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_wayland-beaglebone-sumo
 
 wayland-m3ulcb-thud:
   stage: build-wayland-thud
@@ -123,6 +130,7 @@ wayland-m3ulcb-thud:
     - popd
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_wayland-m3ulcb-thud
 
 wayland-qemuarm64-clang-thud:
   stage: build-wayland-thud
@@ -137,3 +145,14 @@ wayland-qemuarm64-clang-thud:
   script:
     - bitbake $BITBAKE_TARGET
     - rm -rf tmp
+    - touch ~/yocto-chromium/ok_wayland-qemuarm64-clang-thud
+
+count-results:
+  stage:  count-results
+  tags:
+    - meta-browser
+  script:
+    - cd ~/yocto-chromium/
+    - OK=$(ls ok_* | wc -l)
+    - rm ok_*
+    - [ "${OK}" -lt "8" ] && false
