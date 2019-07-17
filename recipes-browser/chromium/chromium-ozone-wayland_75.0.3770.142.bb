@@ -58,5 +58,6 @@ GN_ARGS += "\
         use_system_libdrm=true \
 "
 
+
 # The chromium binary must always be started with those arguments.
 CHROMIUM_EXTRA_ARGS_append = " --ozone-platform=wayland"
